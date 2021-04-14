@@ -1,13 +1,18 @@
 package pkg
 
-import "math/rand"
+import (
+	"math/rand"
+	"time"
+)
 
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-func RandString(n int) string {
-	b := make([]byte, n)
+func RandString(length int) string {
+	var seededRand *rand.Rand = rand.New(
+		rand.NewSource(time.Now().UnixNano()))
+	b := make([]byte, length)
 	for i := range b {
-		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+		b[i] = charset[seededRand.Intn(len(charset))]
 	}
 	return string(b)
 }

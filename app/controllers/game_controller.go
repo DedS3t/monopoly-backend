@@ -19,9 +19,9 @@ func CreateGame(c *fiber.Ctx) error {
 	}
 
 	game := &models.Game{
-		Id:      pkg.RandString(8),
-		Name:    gameCreateDto.Name,
-		Started: "false",
+		Id:     pkg.RandString(8),
+		Name:   gameCreateDto.Name,
+		Status: "false",
 	}
 
 	_, err := db.Model(game).Insert()
@@ -31,4 +31,39 @@ func CreateGame(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{"id": game.Id})
+}
+
+func GetAllAvailGames(c *fiber.Ctx) error {
+	db := database.PostgreSQLConnection()
+	defer db.Close()
+
+	var games []models.Game
+	err := db.Model(&games).Where("status = ?", "false").Select()
+	if err != nil {
+		panic(err)
+	}
+
+	return c.JSON(games)
+
+}
+
+func VerifyGame(c *fiber.Ctx) error {
+	db := database.PostgreSQLConnection()
+	defer db.Close()
+
+	verifyGameDto := new(models.VerifyGameDto)
+	if err := c.QueryParser(verifyGameDto); err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	game := &models.Game{Id: verifyGameDto.Code}
+
+	err := db.Model(game).WherePK().Select()
+	if err != nil {
+		fmt.Println(err)
+		return c.JSON(fiber.Map{"status": false})
+	}
+	return c.JSON(fiber.Map{"status": true})
+
 }

@@ -9,6 +9,8 @@ import (
 	jwtware "github.com/gofiber/jwt/v2"
 )
 
+// TODO add logging
+
 func main() {
 	app := fiber.New()
 

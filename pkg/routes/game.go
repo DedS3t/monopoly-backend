@@ -8,4 +8,6 @@ import (
 func GameRoutes(a *fiber.App) {
 	route := a.Group("/game")
 	route.Post("create", controllers.CreateGame)
+	route.Get("/verify", controllers.VerifyGame)
+	route.Get("/all", controllers.GetAllAvailGames)
 }

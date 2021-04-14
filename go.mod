@@ -7,9 +7,16 @@ require (
 	github.com/go-pg/pg/v10 v10.9.0 // indirect
 	github.com/gofiber/fiber/v2 v2.7.1
 	github.com/gofiber/jwt/v2 v2.2.1 // indirect
+	github.com/gomodule/redigo v1.8.4 // indirect
 	github.com/googollee/go-socket.io v1.4.4 // indirect
 	github.com/joho/godotenv v1.3.0 // indirect
+	github.com/mlsquires/socketio v0.0.0-20180414171845-169a6f09e624 // indirect
+	github.com/pschlump/MiscLib v1.0.0 // indirect
+	github.com/pschlump/godebug v1.0.1 // indirect
+	github.com/pschlump/json v1.12.0 // indirect
 	github.com/rs/cors v1.7.0 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
+	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/valyala/fasthttp v1.23.0 // indirect
+	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2 // indirect
 )

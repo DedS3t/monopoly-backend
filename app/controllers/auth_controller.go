@@ -8,10 +8,17 @@ import (
 	_ "github.com/go-pg/pg/v10/orm"
 	"github.com/gofiber/fiber/v2"
 	uuid "github.com/satori/go.uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func encrypt(pass string) string {
-	return pass
+
+	bytes := []byte(pass)
+	hash, err := bcrypt.GenerateFromPassword(bytes, bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+	return string(hash)
 }
 
 func CreateUser(c *fiber.Ctx) error {
@@ -30,7 +37,7 @@ func CreateUser(c *fiber.Ctx) error {
 		Password: encrypt(userDto.Pass)}).Insert()
 
 	if err != nil {
-		panic(err)
+		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 	return c.SendStatus(201)
 }
@@ -45,11 +52,16 @@ func Login(c *fiber.Ctx) error {
 	}
 
 	user := new(models.User)
-	err := db.Model(user).Where("email = ? AND password = ?", userDto.Email, userDto.Pass).Select()
-
+	err := db.Model(user).Where("email = ?", userDto.Email).Limit(1).Select()
 	if err != nil {
-		c.SendStatus(401)
+		return c.SendStatus(401)
 	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userDto.Pass))
+	if err != nil {
+		return c.SendStatus(401)
+	}
+
 	token := jwt.New(jwt.SigningMethodHS256)
 	claims := token.Claims.(jwt.MapClaims)
 	claims["user_id"] = user.Id
