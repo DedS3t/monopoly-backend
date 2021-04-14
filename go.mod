@@ -7,6 +7,9 @@ require (
 	github.com/go-pg/pg/v10 v10.9.0 // indirect
 	github.com/gofiber/fiber/v2 v2.7.1
 	github.com/gofiber/jwt/v2 v2.2.1 // indirect
+	github.com/googollee/go-socket.io v1.4.4 // indirect
 	github.com/joho/godotenv v1.3.0 // indirect
+	github.com/rs/cors v1.7.0 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
+	github.com/valyala/fasthttp v1.23.0 // indirect
 )

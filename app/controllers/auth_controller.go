@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"github.com/DedS3t/monopoly-backend/app/models"
 	"github.com/DedS3t/monopoly-backend/platform/database"
 	jwt "github.com/form3tech-oss/jwt-go"
 	_ "github.com/go-pg/pg/v10"
@@ -9,32 +10,21 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
-type User struct {
-	Id       string
-	Email    string
-	Password string
-}
-
-type UserDto struct {
-	Email string `json:"email"`
-	Pass  string `json:"pass"`
-}
-
 func encrypt(pass string) string {
 	return pass
 }
 
-func Create(c *fiber.Ctx) error {
+func CreateUser(c *fiber.Ctx) error {
 	db := database.PostgreSQLConnection()
 	defer db.Close()
 
-	userDto := new(UserDto)
+	userDto := new(models.UserDto)
 	if err := c.BodyParser(userDto); err != nil {
-		return err
+		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 
 	uuid := uuid.NewV4()
-	_, err := db.Model(&User{
+	_, err := db.Model(&models.User{
 		Id:       uuid.String(),
 		Email:    userDto.Email,
 		Password: encrypt(userDto.Pass)}).Insert()
@@ -42,23 +32,23 @@ func Create(c *fiber.Ctx) error {
 	if err != nil {
 		panic(err)
 	}
-	return c.Status(201).SendString("Success")
+	return c.SendStatus(201)
 }
 
 func Login(c *fiber.Ctx) error {
 	db := database.PostgreSQLConnection()
 	defer db.Close()
 
-	userDto := new(UserDto)
+	userDto := new(models.UserDto)
 	if err := c.BodyParser(userDto); err != nil {
 		return err
 	}
 
-	user := new(User)
+	user := new(models.User)
 	err := db.Model(user).Where("email = ? AND password = ?", userDto.Email, userDto.Pass).Select()
 
 	if err != nil {
-		c.Status(401).SendString("Unauthorized")
+		c.SendStatus(401)
 	}
 	token := jwt.New(jwt.SigningMethodHS256)
 	claims := token.Claims.(jwt.MapClaims)
