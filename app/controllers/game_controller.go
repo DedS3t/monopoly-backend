@@ -60,10 +60,11 @@ func VerifyGame(c *fiber.Ctx) error {
 	game := &models.Game{Id: verifyGameDto.Code}
 
 	err := db.Model(game).WherePK().Select()
-	if err != nil {
+	if err != nil || game.Status != "false" {
 		fmt.Println(err)
 		return c.JSON(fiber.Map{"status": false})
 	}
+
 	return c.JSON(fiber.Map{"status": true})
 
 }

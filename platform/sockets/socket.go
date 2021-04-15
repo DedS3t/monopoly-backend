@@ -17,12 +17,14 @@ import (
 func CreateSocketIOServer() {
 
 	server, err := socketio.NewServer(nil)
-	db := database.PostgreSQLConnection()
-	pool := cache.CreateRedisPool()
-
 	if err != nil {
 		panic(err)
 	}
+	db := database.PostgreSQLConnection()
+	defer db.Close()
+
+	pool := cache.CreateRedisPool()
+	defer pool.Close()
 
 	server.OnConnect("/", func(s socketio.Conn) error {
 		s.SetContext("")
@@ -80,6 +82,17 @@ func CreateSocketIOServer() {
 		s.Leave(result["game_id"])
 		go queries.DeletePlayer(result["user_id"], result["game_id"], db)
 		server.BroadcastToRoom("/", result["game_id"], "player-left")
+	})
+
+	server.OnEvent("/", "start-game", func(s socketio.Conn, game_id string) {
+		conn := pool.Get()
+		defer conn.Close()
+		if queries.StartGame(game_id, &conn) {
+			server.BroadcastToRoom("/", game_id, "game-start")
+		} else {
+			// failed to start game
+			fmt.Println("Failed to start game")
+		}
 	})
 
 	server.OnError("/", func(s socketio.Conn, e error) {
