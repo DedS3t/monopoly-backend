@@ -1,13 +1,16 @@
 package queries
 
 import (
-	"encoding/json"
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/DedS3t/monopoly-backend/app/models"
+	"github.com/DedS3t/monopoly-backend/platform/cache"
 	"github.com/DedS3t/monopoly-backend/platform/database"
 	"github.com/go-pg/pg/v10"
 	"github.com/gomodule/redigo/redis"
+	socketio "github.com/googollee/go-socket.io"
 )
 
 func VerifyGame(id string, db *pg.DB) bool {
@@ -27,11 +30,33 @@ func CreatePlayer(player models.Player, db *pg.DB) error {
 	return err
 }
 
-func DeletePlayer(user_id string, game string, db *pg.DB) error {
+func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Server) error {
+	// TODO add the leave system
+	conn, _ := cache.CreateRedisConnection()
 
 	player := new(models.Player)
-	_, err := db.Model(player).Where("user_id = ? and game_id = ?", user_id, game).Delete()
+	_, err1 := db.Model(player).Where("user_id = ? and game_id = ?", user_id, game).Delete()
+
 	CheckDB(game, db)
+
+	val, err := cache.Get(game, &conn)
+	if err != nil || val == "" {
+		return err1
+	}
+	if val == user_id {
+		new_turn := GetNextTurn(game, user_id, &conn)
+		server.BroadcastToRoom("/", game, "change-turn", new_turn)
+	}
+	cache.Del(fmt.Sprintf("%s.%s", game, user_id), &conn)
+	cache.Del(fmt.Sprintf("%s.%s.cards", game, user_id), &conn)
+	cache.LREM(fmt.Sprintf("%s.order", game), user_id, &conn)
+
+	length, err := cache.LLEN(fmt.Sprintf("%s.order", game), &conn)
+	if length <= 1 {
+		cleanUp(game, db, &conn)
+		server.BroadcastToRoom("/", game, "game-over")
+	}
+
 	return err
 }
 
@@ -42,29 +67,77 @@ func CheckDB(game_id string, db *pg.DB) {
 		// means there are 0 rows returned
 
 		game := new(models.Game)
-		_, err = db.Model(game).Where("id = ?", game_id).Delete()
+		db.Model(game).Where("id = ?", game_id).Delete()
 	}
 }
 
-func createRedisValue(key string, value interface{}, conn *redis.Conn) bool {
-	reply, err := redis.String((*conn).Do("SET", key, value))
-	if reply != "OK" || err != nil {
-		fmt.Println(err)
-		fmt.Println(reply)
-		return false
+func cleanUp(game_id string, db *pg.DB, conn *redis.Conn) {
+	// db cleanup
+	player := new(models.Player)
+	game := new(models.Game)
+	db.Model(player).Where("game_id = ?", game_id).Delete()
+	db.Model(game).Where("id = ?", game_id).Delete()
+	// redis cleanup
+	res, _ := cache.LGET(fmt.Sprintf("%s.order", game_id), conn)
+	for _, id := range res {
+		cache.Del(fmt.Sprintf("%s.%s", game, string(id.([]byte))), conn)
+		cache.Del(fmt.Sprintf("%s.%s.cards", game, string(id.([]byte))), conn)
 	}
-	return true
+	cache.Del(game_id, conn)
+	cache.Del(fmt.Sprintf("%s.order", game_id), conn)
 }
 
 func createRedisPlayer(game_id string, player models.Player, conn *redis.Conn) {
-	var cards []models.Card
-	str, err := json.Marshal(cards)
+	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "bal", 1500, conn)
+	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "pos", 0, conn)
+	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "hasRolled", "false", conn)
+	// add color
+	//cache.Set(fmt.Sprintf("%s.%s.cards", player.Game_id, player.User_id), str, conn) cards is an empty array
+}
+
+func GetNextTurn(game_id string, user_id string, conn *redis.Conn) string {
+	res, err := cache.LGET(fmt.Sprintf("%s.order", game_id), conn)
 	if err != nil {
 		panic(err)
 	}
-	createRedisValue(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), str, conn)   // set to empty array
-	createRedisValue(fmt.Sprintf("%s.%s.pos", player.Game_id, player.User_id), 0, conn) // set initial pos to 0
-	createRedisValue(fmt.Sprintf("%s.%s.bal", player.Game_id, player.User_id), 0, conn) // set intiial bal to 0
+
+	for idx, id := range res {
+		if user_id == string(id.([]byte)) {
+			if idx == (len(res) - 1) {
+				val, err := cache.LINDEX(fmt.Sprintf("%s.order", game_id), 0, conn)
+				if err != nil {
+					fmt.Println("Failed getting next turn")
+					panic(err)
+				}
+				cache.Set(game_id, val, conn)
+				return val.(string)
+			} else {
+				val, err := cache.LINDEX(fmt.Sprintf("%s.order", game_id), idx+1, conn)
+				if err != nil {
+					fmt.Println("Failed getting next turn")
+					panic(err)
+				}
+				cache.Set(game_id, val, conn)
+				return val.(string)
+			}
+		}
+	}
+	return ""
+}
+
+func RollDice(game_id string, user_id string, conn *redis.Conn) (int, int, int) {
+	rand.Seed(time.Now().UnixNano())
+	dice1 := rand.Intn(7) + 1
+	dice2 := rand.Intn(7) + 1
+	newPos, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "pos", (dice1 + dice2), conn)
+	if err != nil {
+		panic(err)
+	}
+	if dice1 != dice2 {
+		cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "hasRolled", "true", conn)
+	}
+
+	return dice1, dice2, newPos
 }
 
 func StartGame(game_id string, conn *redis.Conn) bool {
@@ -77,12 +150,15 @@ func StartGame(game_id string, conn *redis.Conn) bool {
 		return false
 	}
 
-	createRedisValue(game_id, players[0].User_id, conn)
-
+	cache.Set(game_id, players[0].User_id, conn)
+	var ids []interface{}
 	for _, player := range players {
 		createRedisPlayer(game_id, player, conn)
+		//cache.Set(fmt.Sprintf("%s.%d", game_id, idx), player.User_id, conn)
+		ids = append(ids, player.User_id)
 	}
-
+	cache.RPUSH(fmt.Sprintf("%s.order", game_id), ids, conn)
+	fmt.Println("Failed creating array")
 	game := &models.Game{
 		Id: game_id,
 	}

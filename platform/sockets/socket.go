@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/DedS3t/monopoly-backend/app/models"
 	"github.com/DedS3t/monopoly-backend/platform/cache"
@@ -80,7 +81,7 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 
 		s.Leave(result["game_id"])
-		go queries.DeletePlayer(result["user_id"], result["game_id"], db)
+		go queries.DeletePlayer(result["user_id"], result["game_id"], db, server)
 		server.BroadcastToRoom("/", result["game_id"], "player-left")
 	})
 
@@ -88,11 +89,51 @@ func CreateSocketIOServer() {
 		conn := pool.Get()
 		defer conn.Close()
 		if queries.StartGame(game_id, &conn) {
-			server.BroadcastToRoom("/", game_id, "game-start")
+			server.BroadcastToRoom("/", game_id, "game-start", "1500.0")
+			time.Sleep(100 * time.Millisecond)
+			val, err := cache.Get(game_id, &conn)
+			if err != nil {
+				panic(err)
+			}
+			server.BroadcastToRoom("/", game_id, "change-turn", val)
 		} else {
 			// failed to start game
 			fmt.Println("Failed to start game")
 		}
+	})
+
+	server.OnEvent("/", "roll-dice", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
+		var result map[string]string
+		json.Unmarshal([]byte(jsonStr), &result)
+
+		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
+			// check if has rolled dice
+			if !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
+				dice1, dice2, newPos := queries.RollDice(result["game_id"], result["user_id"], &conn)
+				//jsonMap := map[string]interface{}{"dice1": dice1, "dice2": dice2,"pos": newPos, "user_id": }
+				server.BroadcastToRoom("/", result["game_id"], "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, newPos))
+			}
+		}
+	})
+
+	server.OnEvent("/", "end-turn", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
+		var result map[string]string
+		json.Unmarshal([]byte(jsonStr), &result)
+
+		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
+			// check if has rolled dice
+			if queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
+				new_id := queries.GetNextTurn(result["game_id"], result["user_id"], &conn)
+				server.BroadcastToRoom("/", result["game_id"], "change-turn", new_id)
+				queries.ResetRolledDice(result["game_id"], result["user_id"], &conn)
+			}
+		}
+		// ELSE End turn from wrong user
+
 	})
 
 	server.OnError("/", func(s socketio.Conn, e error) {
