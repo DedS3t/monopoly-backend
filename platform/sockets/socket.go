@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/DedS3t/monopoly-backend/app/models"
+	"github.com/DedS3t/monopoly-backend/platform/board"
 	"github.com/DedS3t/monopoly-backend/platform/cache"
 	"github.com/DedS3t/monopoly-backend/platform/database"
 	"github.com/DedS3t/monopoly-backend/platform/queries"
@@ -26,6 +27,8 @@ func CreateSocketIOServer() {
 
 	pool := cache.CreateRedisPool()
 	defer pool.Close()
+
+	board := board.LoadProperties()
 
 	server.OnConnect("/", func(s socketio.Conn) error {
 		s.SetContext("")
@@ -86,6 +89,12 @@ func CreateSocketIOServer() {
 	})
 
 	server.OnEvent("/", "start-game", func(s socketio.Conn, game_id string) {
+		// TODO check for double
+		// TODO add save state
+		/* Set go timeout for 3 mins before deletion of player data.
+		If player decides to within 3 mins he can
+		Have new event join-back
+		*/
 		conn := pool.Get()
 		defer conn.Close()
 		if queries.StartGame(game_id, &conn) {
@@ -111,11 +120,23 @@ func CreateSocketIOServer() {
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
 			// check if has rolled dice
 			if !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
-				dice1, dice2, newPos := queries.RollDice(result["game_id"], result["user_id"], &conn)
-				//jsonMap := map[string]interface{}{"dice1": dice1, "dice2": dice2,"pos": newPos, "user_id": }
-				server.BroadcastToRoom("/", result["game_id"], "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, newPos))
+				queries.RollDice(result["game_id"], result["user_id"], &board, &conn, server)
+
+				//server.BroadcastToRoom("/", result["game_id"], "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, newPos))
 			}
 		}
+	})
+
+	server.OnEvent("/", "request-buy", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
+		var result map[string]string
+		json.Unmarshal([]byte(jsonStr), &result)
+
+		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
+			queries.BuyProperty(result["game_id"], result["user_id"], &conn, &board, server)
+		}
+
 	})
 
 	server.OnEvent("/", "end-turn", func(s socketio.Conn, jsonStr string) {

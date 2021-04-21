@@ -1,11 +1,14 @@
 package queries
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"time"
 
 	"github.com/DedS3t/monopoly-backend/app/models"
+	"github.com/DedS3t/monopoly-backend/platform/board"
 	"github.com/DedS3t/monopoly-backend/platform/cache"
 	"github.com/DedS3t/monopoly-backend/platform/database"
 	"github.com/go-pg/pg/v10"
@@ -125,11 +128,30 @@ func GetNextTurn(game_id string, user_id string, conn *redis.Conn) string {
 	return ""
 }
 
-func RollDice(game_id string, user_id string, conn *redis.Conn) (int, int, int) {
+func RollDice(game_id string, user_id string, Board *[]models.Property, conn *redis.Conn, server *socketio.Server) {
 	rand.Seed(time.Now().UnixNano())
 	dice1 := rand.Intn(7) + 1
 	dice2 := rand.Intn(7) + 1
-	newPos, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "pos", (dice1 + dice2), conn)
+
+	curPosS, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", conn)
+	if err != nil {
+		panic(err)
+	}
+	curPos, _ := strconv.Atoi(curPosS)
+
+	nPos := (dice1 + dice2 + curPos)
+	if nPos >= 40 {
+		// add 200 since passed goal
+		// alert
+		newBalance, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", 200, conn)
+		if err != nil {
+			panic(err)
+		}
+		server.BroadcastToRoom("/", game_id, "passed-go", fmt.Sprintf("%s.%d", user_id, newBalance))
+		nPos -= 40
+	}
+
+	err = cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", nPos, conn)
 	if err != nil {
 		panic(err)
 	}
@@ -137,7 +159,74 @@ func RollDice(game_id string, user_id string, conn *redis.Conn) (int, int, int) 
 		cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "hasRolled", "true", conn)
 	}
 
-	return dice1, dice2, newPos
+	server.BroadcastToRoom("/", game_id, "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, nPos))
+
+	val, err := board.GetByPos(nPos, Board)
+	if err == nil {
+		id := CheckWhoOwns(game_id, val.Id, conn)
+		if id == "" {
+			// send buy request
+			encoded, _ := json.Marshal(&val)
+			server.BroadcastToRoom("/", game_id, "buy-request", string(encoded))
+		} else {
+			// pay rent
+			// TODO check for 0
+			/*
+				bal, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", conn)
+				if err != nil {
+					panic(err)
+				}
+				nBal, _ := strconv.Atoi(bal)
+				cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (nBal - val.Rent), conn)
+			*/
+			nBal, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (-1 * val.Rent), conn)
+			if err != nil {
+				panic(err)
+			}
+			nBal2, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, id), "bal", val.Rent, conn)
+			if err != nil {
+				panic(err)
+			}
+			server.BroadcastToRoom("/", game_id, "payed-rent", fmt.Sprintf("%s.%s.%d.%d", user_id, id, nBal, nBal2))
+		}
+	}
+}
+
+func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *[]models.Property, server *socketio.Server) {
+	// get pos
+	val, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", conn)
+	if err != nil {
+		panic(err)
+	}
+	pos, _ := strconv.Atoi(val)
+	// get card at pos
+	property, err := board.GetByPos(pos, Board)
+	if err != nil {
+		panic(err)
+	}
+	// check if is owned by someone
+	id := CheckWhoOwns(game_id, property.Id, conn)
+	if id != "" {
+		return
+	}
+	// check if enough bal to buy
+	val, err = cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", conn)
+	if err != nil {
+		panic(err)
+	}
+	bal, _ := strconv.Atoi(val)
+	if bal < property.Price {
+		return
+	}
+	// sub bal
+	err = cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (bal - property.Price), conn)
+	if err != nil {
+		panic(err)
+	}
+	// add card to user hash map
+	cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), property.Id, 1, conn) // for now set to 1
+	// broadcast
+	server.BroadcastToRoom("/", game_id, "property-bought", fmt.Sprintf("%s.%d", user_id, (bal-property.Price)))
 }
 
 func StartGame(game_id string, conn *redis.Conn) bool {

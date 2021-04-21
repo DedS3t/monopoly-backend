@@ -18,7 +18,7 @@ func IsUserTurn(game_id string, user_id string, conn *redis.Conn) bool {
 func HasRolledDice(game_id string, user_id string, conn *redis.Conn) bool {
 	val, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "hasRolled", conn)
 	if err != nil {
-		panic(err) // change to return
+		panic(err) // TODO change to return
 	}
 	return val == "true"
 }
@@ -29,4 +29,19 @@ func ResetRolledDice(game_id string, user_id string, conn *redis.Conn) bool {
 		panic(err)
 	}
 	return true
+}
+
+func CheckWhoOwns(game_id string, card_id string, conn *redis.Conn) string {
+	res, err := cache.LGET(fmt.Sprintf("%s.order", game_id), conn)
+	if err != nil {
+		panic(err)
+	}
+	for _, id := range res {
+		// check if contains card
+		_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, string(id.([]byte))), card_id, conn)
+		if err == nil {
+			return string(id.([]byte))
+		}
+	}
+	return ""
 }
