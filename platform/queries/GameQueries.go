@@ -33,6 +33,17 @@ func CreatePlayer(player models.Player, db *pg.DB) error {
 	return err
 }
 
+func GetUserData(user_id string, db *pg.DB) (*models.User, error) {
+	user := &models.User{
+		Id: user_id,
+	}
+	err := db.Model(user).WherePK().Select()
+	if err != nil {
+		return user, err
+	}
+	return user, nil
+}
+
 func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Server) error {
 	// TODO add the leave system
 	conn, _ := cache.CreateRedisConnection()
@@ -94,8 +105,6 @@ func createRedisPlayer(game_id string, player models.Player, conn *redis.Conn) {
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "bal", 1500, conn)
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "pos", 0, conn)
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "hasRolled", "false", conn)
-	// add color
-	//cache.Set(fmt.Sprintf("%s.%s.cards", player.Game_id, player.User_id), str, conn) cards is an empty array
 }
 
 func GetNextTurn(game_id string, user_id string, conn *redis.Conn) string {
@@ -229,20 +238,28 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *[]mode
 	server.BroadcastToRoom("/", game_id, "property-bought", fmt.Sprintf("%s.%d", user_id, (bal-property.Price)))
 }
 
-func StartGame(game_id string, conn *redis.Conn) bool {
+func StartGame(game_id string, conn *redis.Conn) *map[string]models.PlayerDto {
 	db := database.PostgreSQLConnection()
 	var players []models.Player
+	playersDto := make(map[string]models.PlayerDto)
 
 	err := db.Model(&players).Where("game_id = ?", game_id).Select()
 
 	if err != nil || len(players) <= 1 {
-		return false
+		return nil
 	}
 
 	cache.Set(game_id, players[0].User_id, conn)
 	var ids []interface{}
-	for _, player := range players {
+	arrColors := []string{"#63b598", "#ce7d78", "#ea9e70", "#a48a9e", "#c6e1e8", "#648177", "#0d5ac1", "#f205e6", "#1c0365", "#14a9ad", "#4ca2f9", "#a4e43f", "#d298e2", "#6119d0", "#d2737d", "#c0a43c", "#f2510e", "#651be6", "#79806e", "#61da5e", "#cd2f00", "#9348af", "#01ac53", "#c5a4fb", "#996635", "#b11573", "#4bb473", "#75d89e"}
+	for idx, player := range players {
 		createRedisPlayer(game_id, player, conn)
+		playersDto[player.User_id] = models.PlayerDto{
+			Username: player.Username,
+			Balance:  1500,
+			Pos:      0,
+			Color:    arrColors[idx],
+		}
 		//cache.Set(fmt.Sprintf("%s.%d", game_id, idx), player.User_id, conn)
 		ids = append(ids, player.User_id)
 	}
@@ -256,5 +273,5 @@ func StartGame(game_id string, conn *redis.Conn) bool {
 		panic(err)
 	}
 
-	return true
+	return &playersDto
 }

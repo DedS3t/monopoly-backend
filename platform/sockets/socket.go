@@ -54,9 +54,16 @@ func CreateSocketIOServer() {
 				s.Emit("failed")
 				return
 			}
+
+			user, err := queries.GetUserData(user_id, db)
+			if err != nil {
+				s.Emit("failed")
+				panic(err)
+			}
 			err = queries.CreatePlayer(models.Player{
-				Game_id: id,
-				User_id: user_id,
+				Game_id:  id,
+				User_id:  user_id,
+				Username: user.Email,
 			}, db)
 
 			if err != nil {
@@ -97,8 +104,12 @@ func CreateSocketIOServer() {
 		*/
 		conn := pool.Get()
 		defer conn.Close()
-		if queries.StartGame(game_id, &conn) {
-			server.BroadcastToRoom("/", game_id, "game-start", "1500.0")
+		if result := queries.StartGame(game_id, &conn); result != nil {
+			userJson, err := json.Marshal(result)
+			if err != nil {
+				panic(err)
+			}
+			server.BroadcastToRoom("/", game_id, "game-start", string(userJson))
 			time.Sleep(100 * time.Millisecond)
 			val, err := cache.Get(game_id, &conn)
 			if err != nil {
