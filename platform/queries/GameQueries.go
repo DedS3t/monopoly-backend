@@ -137,7 +137,7 @@ func GetNextTurn(game_id string, user_id string, conn *redis.Conn) string {
 	return ""
 }
 
-func RollDice(game_id string, user_id string, Board *[]models.Property, conn *redis.Conn, server *socketio.Server) {
+func RollDice(game_id string, user_id string, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) {
 	rand.Seed(time.Now().UnixNano())
 	dice1 := rand.Intn(7) + 1
 	dice2 := rand.Intn(7) + 1
@@ -169,14 +169,19 @@ func RollDice(game_id string, user_id string, Board *[]models.Property, conn *re
 	}
 
 	server.BroadcastToRoom("/", game_id, "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, nPos))
-
+	if nPos == 0 {
+		return
+	}
 	val, err := board.GetByPos(nPos, Board)
 	if err == nil {
-		id := CheckWhoOwns(game_id, val.Id, conn)
+		id := CheckWhoOwns(game_id, val.Posistion, conn)
 		if id == "" {
 			// send buy request
-			encoded, _ := json.Marshal(&val)
-			server.BroadcastToRoom("/", game_id, "buy-request", string(encoded))
+			if val.Type == "property" {
+				encoded, _ := json.Marshal(&val)
+				server.BroadcastToRoom("/", game_id, "buy-request", string(encoded))
+			}
+			// TODO else handle special card
 		} else {
 			// pay rent
 			// TODO check for 0
@@ -201,7 +206,7 @@ func RollDice(game_id string, user_id string, Board *[]models.Property, conn *re
 	}
 }
 
-func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *[]models.Property, server *socketio.Server) {
+func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[string]models.Property, server *socketio.Server) {
 	// get pos
 	val, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", conn)
 	if err != nil {
@@ -214,7 +219,7 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *[]mode
 		panic(err)
 	}
 	// check if is owned by someone
-	id := CheckWhoOwns(game_id, property.Id, conn)
+	id := CheckWhoOwns(game_id, property.Posistion, conn)
 	if id != "" {
 		return
 	}
@@ -233,7 +238,7 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *[]mode
 		panic(err)
 	}
 	// add card to user hash map
-	cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), property.Id, 1, conn) // for now set to 1
+	cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(property.Posistion), 1, conn) // for now set to 1
 	// broadcast
 	server.BroadcastToRoom("/", game_id, "property-bought", fmt.Sprintf("%s.%d", user_id, (bal-property.Price)))
 }

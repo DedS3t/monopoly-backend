@@ -2,6 +2,7 @@ package queries
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/DedS3t/monopoly-backend/platform/cache"
 	"github.com/gomodule/redigo/redis"
@@ -31,14 +32,14 @@ func ResetRolledDice(game_id string, user_id string, conn *redis.Conn) bool {
 	return true
 }
 
-func CheckWhoOwns(game_id string, card_id string, conn *redis.Conn) string {
+func CheckWhoOwns(game_id string, card_pos int, conn *redis.Conn) string { // O(N) time complex
 	res, err := cache.LGET(fmt.Sprintf("%s.order", game_id), conn)
 	if err != nil {
 		panic(err)
 	}
 	for _, id := range res {
 		// check if contains card
-		_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, string(id.([]byte))), card_id, conn)
+		_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, string(id.([]byte))), strconv.Itoa(card_pos), conn)
 		if err == nil {
 			return string(id.([]byte))
 		}

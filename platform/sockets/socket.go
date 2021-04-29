@@ -16,6 +16,8 @@ import (
 	"github.com/rs/cors"
 )
 
+// TODO add chat
+
 func CreateSocketIOServer() {
 
 	server, err := socketio.NewServer(nil)

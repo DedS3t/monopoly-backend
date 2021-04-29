@@ -5,12 +5,13 @@ import (
 	"errors"
 	"io/ioutil"
 	"os"
+	"strconv"
 
 	"github.com/DedS3t/monopoly-backend/app/models"
 )
 
-func LoadProperties() []models.Property {
-	var properties []models.Property
+func LoadProperties() map[string]models.Property {
+	var properties map[string]models.Property
 	jsonFile, err := os.Open("platform/board//properties.json")
 	if err != nil {
 		panic(err)
@@ -23,21 +24,10 @@ func LoadProperties() []models.Property {
 	return properties
 }
 
-func GetByPos(pos int, properties *[]models.Property) (models.Property, error) { // O(N) time complexity
-	for _, property := range *properties {
-		if property.Posistion == pos {
-			return property, nil
-		}
+func GetByPos(pos int, properties *map[string]models.Property) (models.Property, error) { // O(1) time complexity
+	if property, found := (*properties)[strconv.Itoa(pos)]; found {
+		return property, nil
+	} else {
+		return models.Property{}, errors.New("not found")
 	}
-	return models.Property{}, errors.New("not found")
-
-}
-
-func GetById(id string, properties *[]models.Property) (models.Property, error) { // O(N) time complexity
-	for _, property := range *properties {
-		if property.Id == id {
-			return property, nil
-		}
-	}
-	return models.Property{}, errors.New("not found")
 }
