@@ -137,7 +137,7 @@ func GetNextTurn(game_id string, user_id string, conn *redis.Conn) string {
 	return ""
 }
 
-func RollDice(game_id string, user_id string, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) {
+func RollDice(game_id string, user_id string, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server, db *pg.DB) {
 	rand.Seed(time.Now().UnixNano())
 	dice1 := rand.Intn(7) + 1
 	dice2 := rand.Intn(7) + 1
@@ -180,19 +180,65 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 			if val.Type == "property" {
 				encoded, _ := json.Marshal(&val)
 				server.BroadcastToRoom("/", game_id, "buy-request", string(encoded))
+			} else if specialDto := GetSpecial(nPos, Board); specialDto.Action != "" {
+				// handle special
+				if specialDto.Action == "change" {
+					// update money
+					NewBal, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", specialDto.Payload, conn)
+					if err != nil {
+						panic(err)
+					}
+					dto := make(map[string]interface{})
+					dto["Info"] = specialDto.Info
+					dto["Action"] = specialDto.Action
+					dto["Payload"] = specialDto.Payload
+					dto["User"] = user_id
+					dto["Balance"] = NewBal
+					jsonResult, err := json.Marshal(dto)
+					if err != nil {
+						panic(err)
+					}
+					server.BroadcastToRoom("/", game_id, "special", string(jsonResult))
+				} else if specialDto.Action == "move" {
+					// move
+					// !!! TODO create function to handle property and call it again
+					err = cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", specialDto.Payload, conn)
+					if err != nil {
+						panic(err)
+					}
+					dto := make(map[string]interface{})
+					dto["Info"] = specialDto.Info
+					dto["Action"] = specialDto.Action
+					dto["Payload"] = specialDto.Payload
+					dto["User"] = user_id
+					dto["Pos"] = specialDto.Payload
+					jsonResult, err := json.Marshal(dto)
+					if err != nil {
+						panic(err)
+					}
+					server.BroadcastToRoom("/", game_id, "special", string(jsonResult))
+					if nPos > specialDto.Payload {
+						// pass go to get there
+						newBalance, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", 200, conn)
+						if err != nil {
+							panic(err)
+						}
+						server.BroadcastToRoom("/", game_id, "passed-go", fmt.Sprintf("%s.%d", user_id, newBalance))
+					}
+
+				}
 			}
 			// TODO else handle special card
-		} else {
+		} else if id != user_id {
 			// pay rent
 			// TODO check for 0
-			/*
-				bal, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", conn)
-				if err != nil {
-					panic(err)
-				}
-				nBal, _ := strconv.Atoi(bal)
-				cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (nBal - val.Rent), conn)
-			*/
+			// check if user can afford
+			can, _ := CanAfford(game_id, user_id, val.Rent, conn)
+			if !can {
+				server.BroadcastToRoom("/", game_id, "bankrupt", can)
+				DeletePlayer(user_id, game_id, db, server)
+				return
+			}
 			nBal, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (-1 * val.Rent), conn)
 			if err != nil {
 				panic(err)
@@ -224,14 +270,19 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[st
 		return
 	}
 	// check if enough bal to buy
-	val, err = cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", conn)
-	if err != nil {
-		panic(err)
-	}
-	bal, _ := strconv.Atoi(val)
-	if bal < property.Price {
+	can, bal := CanAfford(game_id, user_id, property.Price, conn)
+	if !can {
 		return
 	}
+	/*
+		val, err = cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", conn)
+		if err != nil {
+			panic(err)
+		}
+		bal, _ := strconv.Atoi(val)
+		if bal < property.Price {
+			return
+		}*/
 	// sub bal
 	err = cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (bal - property.Price), conn)
 	if err != nil {

@@ -1,0 +1,121 @@
+{
+    "chance": [
+        {
+            "info": "Advance to Go. (Collect $200)",
+            "action": "move",
+            "payload": 0
+        },
+        {
+            "info": "Advance to Illinois Ave. If you pass Go, collect $200",
+            "action": "move",
+            "payload": 24
+        },
+        {
+            "info": "Advance to St. Charles Place. If you pass Go, collect $200",
+            "action": "move",
+            "payload": 11
+        },
+        {
+            "info": "Bank pays you dividend of $50. ",
+            "action": "change",
+            "payload": 50
+        },
+        {
+            "info": "Get out of Jail Free",
+            "action": "getoutofjail",
+            "payload": 0
+        },
+        {
+            "info": "Go Back 3 Spaces",
+            "action": "move",
+            "payload": -3
+        },
+        {
+            "info": "Go to jail",
+            "action": "jail",
+            "payload": 0
+        },
+        {
+            "info": "Make general repairs on all your property: For each house pay $25, For each hotel pay $100",
+            "action": "repairs",
+            "payload": 0
+        },
+        {
+            "info": "Pay poor tax of $15",
+            "action": "change",
+            "payload": -15
+        },
+        {
+            "info": "Take a trip to Reading Railroad. If you pass Go, collect $200",
+            "action": "move",
+            "payload": 5
+        },
+        {
+            "info": "Take a walk on the Boardwalk. Advance to Boardwalk",
+            "action": "move",
+            "payload": 39
+        },
+        {
+            "info": "Your building and loan matures. Recieve $150",
+            "action": "change",
+            "payload": 150
+        },
+        {
+            "info": "You have won a crossword competition. Collect $100.",
+            "action": "change",
+            "payload": 100
+        }
+    ],
+    "chest": [
+        {
+            "info": "Advance to Go. (Collect $200)",
+            "action": "move",
+            "payload": 0
+        },
+        {
+            "info": "Bank error in your favor. Collect $200",
+            "action": "change",
+            "payload": 200
+        },
+        {
+            "info": "Doctor's fees. Pay $50",
+            "action": "change",
+            "payload": 50
+        },
+        {
+            "info": "From sale of stock you get $50",
+            "action": "change",
+            "payload": 50
+        },
+        {
+            "info": "Get out of Jail Free",
+            "action": "getoutofjail",
+            "payload": 0
+        },
+        {
+            "info": "Go to jail",
+            "action": "jail",
+            "payload": 0
+        },
+        {
+            "info": "Holiday fund matures. Collect $100",
+            "action": "change",
+            "payload": 100
+        },
+        {
+            "info": "Income tax refund. Collect $20",
+            "action": "change",
+            "payload": 20
+        },
+        {
+            "info": "Life Insurance matures - collect $100",
+            "action": "change",
+            "payload": 100
+        },
+        {
+            "info": "You have won second prize in a beauty contest. Collect $10.",
+            "action": "change",
+            "payload": 10
+        }
+    ]
+}

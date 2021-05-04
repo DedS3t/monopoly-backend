@@ -133,9 +133,7 @@ func CreateSocketIOServer() {
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
 			// check if has rolled dice
 			if !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
-				queries.RollDice(result["game_id"], result["user_id"], &board, &conn, server)
-
-				//server.BroadcastToRoom("/", result["game_id"], "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, newPos))
+				queries.RollDice(result["game_id"], result["user_id"], &board, &conn, server, db)
 			}
 		}
 	})
