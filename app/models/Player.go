@@ -7,8 +7,9 @@ type Player struct {
 }
 
 type PlayerDto struct {
-	Username string
-	Balance  int
-	Pos      int
-	Color    string
+	Username   string
+	Balance    int
+	Pos        int
+	Color      string
+	Properties []interface{}
 }

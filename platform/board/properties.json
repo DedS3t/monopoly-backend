@@ -127,7 +127,7 @@
         "action": "visiting"
     },
     "11": {
-        "name": "St. Charles Place",
+        "name": "St Charles Place",
         "posistion": 11,
         "price": 140,
         "type": "property",
@@ -200,7 +200,7 @@
         "group": "railroad"
     },
     "16": {
-        "name": "St. James Place",
+        "name": "St James Place",
         "posistion": 16,
         "price": 180,
         "type": "property",
@@ -320,7 +320,7 @@
         "group": "red"
     },
     "25": {
-        "name": "B. & O. Railroad" ,
+        "name": "B & O Railroad" ,
         "posistion": 25,
         "price": 200,
         "type": "property",
