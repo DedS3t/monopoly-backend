@@ -192,7 +192,7 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 					if err != nil {
 						panic(err)
 					}
-					dto := make(map[string]interface{}) // TODO else handle special card
+					dto := make(map[string]interface{})
 					dto["User"] = user_id
 					dto["Info"] = specialDto.Info
 					dto["Action"] = specialDto.Action
@@ -203,15 +203,6 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 					}
 					server.BroadcastToRoom("/", game_id, "special", string(jsonResult))
 					HandleMove(specialDto.Payload, game_id, user_id, conn, Board, -1, server, db)
-					/*
-						if nPos > specialDto.Payload {
-							// pass go to get there
-							newBalance, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", 200, conn)
-							if err != nil {
-								panic(err)
-							}
-							server.BroadcastToRoom("/", game_id, "passed-go", fmt.Sprintf("%s.%d", user_id, newBalance))
-						}*/
 
 				}
 			}
