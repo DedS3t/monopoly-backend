@@ -10,4 +10,5 @@ func GameRoutes(a *fiber.App) {
 	route.Post("create", controllers.CreateGame)
 	route.Get("/verify", controllers.VerifyGame)
 	route.Get("/all", controllers.GetAllAvailGames)
+	route.Get("/find", controllers.FindAvailGame)
 }

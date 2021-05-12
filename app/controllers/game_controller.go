@@ -44,7 +44,21 @@ func GetAllAvailGames(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(games)
+}
 
+func FindAvailGame(c *fiber.Ctx) error {
+	db := database.PostgreSQLConnection()
+	defer db.Close()
+
+	var games []models.Game
+	err := db.Model(&games).Where("status = ?", "false").Limit(1).Select()
+	if err != nil {
+		panic(err)
+	}
+	if len(games) < 1 {
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+	return c.JSON(games[0])
 }
 
 func VerifyGame(c *fiber.Ctx) error {
