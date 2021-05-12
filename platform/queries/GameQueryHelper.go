@@ -86,8 +86,8 @@ func GetSpecial(card_pos int, Board *map[string]models.Property) models.Special 
 	} else if val.Action == "jail" {
 		// handle jail
 		return models.Special{
-			Info:    "Jail",
-			Action:  "Jail",
+			Info:    "jail",
+			Action:  "jail",
 			Payload: 0,
 		}
 	} else if res, err := strconv.Atoi(val.Action); err == nil {
@@ -143,9 +143,19 @@ func CalculateRent(game_id string, user_id string, dice_roll int, val models.Pro
 
 }
 
+func Jailed(game_id string, user_id string, conn *redis.Conn) (bool, int) {
+	res, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "jailed", conn)
+	if err != nil {
+		panic(err) // TODO delete this
+		// return false
+	}
+	intVal, _ := strconv.Atoi(res)
+	return intVal != 0, intVal
+}
+
 // handle move of
 func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Board *map[string]models.Property, dice_roll int, server *socketio.Server, db *pg.DB) {
-	if nPos >= 40 {
+	if nPos >= 40 || (dice_roll == -1 && nPos == 0) {
 		// add 200 since passed goal
 		// alert
 		newBalance, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", 200, conn)
@@ -153,7 +163,9 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 			panic(err)
 		}
 		server.BroadcastToRoom("/", game_id, "passed-go", fmt.Sprintf("%s.%d", user_id, newBalance))
-		nPos -= 40
+		if nPos >= 40 {
+			nPos -= 40
+		}
 	}
 
 	if nPos == 0 {
@@ -204,6 +216,18 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 					server.BroadcastToRoom("/", game_id, "special", string(jsonResult))
 					HandleMove(specialDto.Payload, game_id, user_id, conn, Board, -1, server, db)
 
+				} else if specialDto.Action == "jail" {
+					/*
+						TODO JAIL:
+							1. Add to user hashmap "jailed" default 0. Then on a per turn basis - 1 , 2 , 3, 4.
+							2. when jailed change pos to 10
+							3. Can pay 50 fine to get out of jail.
+					*/
+					// send to jail
+					cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "jailed", 1, conn)
+					cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", 10, conn)
+					server.BroadcastToRoom("/", game_id, "jail", user_id)
+					return
 				}
 			}
 		} else if id != user_id {
@@ -231,7 +255,7 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 			if err != nil {
 				panic(err)
 			}
-			server.BroadcastToRoom("/", game_id, "payed-rent", fmt.Sprintf("%s.%s.%d.%d", user_id, id, nBal, nBal2))
+			server.BroadcastToRoom("/", game_id, "payed-rent", fmt.Sprintf("%s.%s.%d.%d.%d", user_id, id, nBal, nBal2, rent))
 		}
 	}
 }

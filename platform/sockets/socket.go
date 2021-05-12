@@ -150,6 +150,17 @@ func CreateSocketIOServer() {
 
 	})
 
+	server.OnEvent("/", "pay-out-jail", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
+		var result map[string]string
+		json.Unmarshal([]byte(jsonStr), &result)
+
+		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) && !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
+			queries.PayOutOfJail(result["game_id"], result["user_id"], &conn, db, server)
+		}
+	})
+
 	server.OnEvent("/", "end-turn", func(s socketio.Conn, jsonStr string) {
 		conn := pool.Get()
 		defer conn.Close()

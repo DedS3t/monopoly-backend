@@ -12,4 +12,5 @@ type PlayerDto struct {
 	Pos        int
 	Color      string
 	Properties []interface{}
+	Jail       bool
 }

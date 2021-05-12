@@ -105,6 +105,7 @@ func createRedisPlayer(game_id string, player models.Player, conn *redis.Conn) {
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "bal", 1500, conn)
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "pos", 0, conn)
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "hasRolled", "false", conn)
+	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "jailed", 0, conn)
 }
 
 func GetNextTurn(game_id string, user_id string, conn *redis.Conn) string {
@@ -141,6 +142,43 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 	rand.Seed(time.Now().UnixNano())
 	dice1 := rand.Intn(7) + 1
 	dice2 := rand.Intn(7) + 1
+	// TODO fix bug of incorrect money on chest/chance
+	// check if user is in jail
+	if isJailed, jailVal := Jailed(game_id, user_id, conn); isJailed {
+		if dice1 != dice2 {
+			if jailVal >= 4 {
+				// last throw
+				// pay 50 and then move
+				can, _ := CanAfford(game_id, user_id, 50, conn)
+				if !can {
+					server.BroadcastToRoom("/", game_id, "bankrupt", can)
+					DeletePlayer(user_id, game_id, db, server)
+					return
+				}
+				newBal, _ := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", -50, conn)
+				cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "jailed", 0, conn)
+				dto := make(map[string]interface{})
+				dto["User"] = user_id
+				dto["Balance"] = newBal
+				dto["Info"] = "Payed $50 to get out of jail"
+				jsonResult, err := json.Marshal(dto)
+				if err != nil {
+					panic(err)
+				}
+				server.BroadcastToRoom("/", game_id, "free-jail", user_id)
+				server.BroadcastToRoom("/", game_id, "payment", string(jsonResult))
+			} else {
+				// increment jailVal by 1
+				cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "jailed", 1, conn)
+				cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "hasRolled", "true", conn)
+				server.BroadcastToRoom("/", game_id, "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, 10))
+				return
+			}
+		} else {
+			cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "jailed", 0, conn)
+			server.BroadcastToRoom("/", game_id, "free-jail", user_id)
+		}
+	}
 
 	curPosS, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", conn)
 	if err != nil {
@@ -149,6 +187,16 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 	curPos, _ := strconv.Atoi(curPosS)
 
 	nPos := (dice1 + dice2 + curPos)
+	if nPos >= 40 {
+		// add 200 since passed goal
+		// alert
+		newBalance, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", 200, conn)
+		if err != nil {
+			panic(err)
+		}
+		server.BroadcastToRoom("/", game_id, "passed-go", fmt.Sprintf("%s.%d", user_id, newBalance))
+		nPos -= 40
+	}
 
 	err = cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", nPos, conn)
 	if err != nil {
@@ -160,6 +208,27 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 	server.BroadcastToRoom("/", game_id, "dice-roll", fmt.Sprintf("%d.%d.%d", dice1, dice2, nPos))
 
 	HandleMove(nPos, game_id, user_id, conn, Board, (dice1 + dice2), server, db)
+}
+
+func PayOutOfJail(game_id string, user_id string, conn *redis.Conn, db *pg.DB, server *socketio.Server) {
+	if isJailed, _ := Jailed(game_id, user_id, conn); isJailed {
+		can, _ := CanAfford(game_id, user_id, 50, conn)
+		if !can {
+			return
+		}
+		newBal, _ := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", -50, conn)
+		cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "jailed", 0, conn)
+		dto := make(map[string]interface{})
+		dto["User"] = user_id
+		dto["Balance"] = newBal
+		dto["Info"] = "Payed $50 to get out of jail"
+		jsonResult, err := json.Marshal(dto)
+		if err != nil {
+			panic(err)
+		}
+		server.BroadcastToRoom("/", game_id, "free-jail", user_id)
+		server.BroadcastToRoom("/", game_id, "payment", string(jsonResult))
+	}
 }
 
 func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[string]models.Property, server *socketio.Server) {
@@ -230,6 +299,7 @@ func StartGame(game_id string, conn *redis.Conn) *map[string]models.PlayerDto {
 			Pos:        0,
 			Color:      arrColors[idx],
 			Properties: make([]interface{}, 0),
+			Jail:       false,
 		}
 		//cache.Set(fmt.Sprintf("%s.%d", game_id, idx), player.User_id, conn)
 		ids = append(ids, player.User_id)
