@@ -10,6 +10,7 @@ import (
 	"github.com/DedS3t/monopoly-backend/app/models"
 )
 
+
 func LoadProperties() map[string]models.Property {
 	var properties map[string]models.Property
 	jsonFile, err := os.Open("platform/board//properties.json")

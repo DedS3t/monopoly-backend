@@ -17,11 +17,15 @@ func CreateGame(c *fiber.Ctx) error {
 	if err := c.BodyParser(gameCreateDto); err != nil {
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
+	if gameCreateDto.Type != "public" && gameCreateDto.Type != "private" {
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
 
 	game := &models.Game{
 		Id:     pkg.RandString(8),
 		Name:   gameCreateDto.Name,
 		Status: "false",
+		Type:   gameCreateDto.Type,
 	}
 
 	_, err := db.Model(game).Insert()
@@ -38,7 +42,7 @@ func GetAllAvailGames(c *fiber.Ctx) error {
 	defer db.Close()
 
 	var games []models.Game
-	err := db.Model(&games).Where("status = ?", "false").Select()
+	err := db.Model(&games).Where("status = ? and type = ?", "false", "public").Select()
 	if err != nil {
 		panic(err)
 	}
@@ -51,7 +55,7 @@ func FindAvailGame(c *fiber.Ctx) error {
 	defer db.Close()
 
 	var games []models.Game
-	err := db.Model(&games).Where("status = ?", "false").Limit(1).Select()
+	err := db.Model(&games).Where("status = ? and type = ?", "false", "public").Limit(1).Select()
 	if err != nil {
 		panic(err)
 	}

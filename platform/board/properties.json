@@ -496,7 +496,7 @@
         "name": "Luxury Tax",
         "posistion": 38,
         "type": "special",
-        "action": "-100"
+        "action": "-75"
     },
     "39": {
         "name": "Boardwalk",

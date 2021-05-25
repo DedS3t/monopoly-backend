@@ -142,7 +142,13 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 	rand.Seed(time.Now().UnixNano())
 	dice1 := rand.Intn(7) + 1
 	dice2 := rand.Intn(7) + 1
-	// TODO fix bug of incorrect money on chest/chance
+	// extra cheaks
+	if dice1 > 6 {
+		dice1 = 6
+	}
+	if dice2 > 6 {
+		dice2 = 6
+	}
 	// check if user is in jail
 	if isJailed, jailVal := Jailed(game_id, user_id, conn); isJailed {
 		if dice1 != dice2 {

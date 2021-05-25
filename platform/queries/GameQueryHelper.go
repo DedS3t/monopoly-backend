@@ -103,7 +103,7 @@ func GetSpecial(card_pos int, Board *map[string]models.Property) models.Special 
 	}
 }
 
-func CalculateRent(game_id string, user_id string, dice_roll int, val models.Property, conn *redis.Conn) int {
+func CalculateRent(game_id string, user_id string, dice_roll int, val models.Property, Board *map[string]models.Property, conn *redis.Conn) int {
 	if val.Group == "railroad" {
 		// handle railroads
 		railroadPositions := []string{"5", "15", "25", "35"}
@@ -138,8 +138,20 @@ func CalculateRent(game_id string, user_id string, dice_roll int, val models.Pro
 		}
 		return dice_roll * 10
 	}
-	// default case (regular property)
-	return val.Rent
+
+	// check for all of a certain group
+	for i := 0; i < 40; i++ {
+		prop := (*Board)[strconv.Itoa(i)]
+		if prop.Group == val.Group && prop.Posistion != val.Posistion {
+			_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(prop.Posistion), conn)
+			if err != nil {
+				// if card isnt found
+				return val.Rent
+			}
+		}
+	}
+	// if all cards are found
+	return val.Rent * 2
 
 }
 
@@ -237,9 +249,16 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 				rand.Seed(time.Now().UnixNano())
 				dice1 := rand.Intn(7) + 1
 				dice2 := rand.Intn(7) + 1
+				// extra cheaks
+				if dice1 > 6 {
+					dice1 = 6
+				}
+				if dice2 > 6 {
+					dice2 = 6
+				}
 				dice_roll = (dice1 + dice2)
 			}
-			rent := CalculateRent(game_id, user_id, dice_roll, val, conn)
+			rent := CalculateRent(game_id, user_id, dice_roll, val, Board, conn)
 			// check if user can afford
 			can, _ := CanAfford(game_id, user_id, rent, conn)
 			if !can {
