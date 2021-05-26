@@ -10,7 +10,6 @@ import (
 	"github.com/DedS3t/monopoly-backend/app/models"
 )
 
-
 func LoadProperties() map[string]models.Property {
 	var properties map[string]models.Property
 	jsonFile, err := os.Open("platform/board//properties.json")
@@ -45,4 +44,8 @@ func GetByPos(pos int, properties *map[string]models.Property) (models.Property,
 	} else {
 		return models.Property{}, errors.New("not found")
 	}
+}
+
+func CanBuildHouses(property models.Property) bool {
+	return !(property.Type == "special" || property.Group == "railroad" || property.Group == "utility")
 }

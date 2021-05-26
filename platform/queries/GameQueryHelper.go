@@ -103,7 +103,21 @@ func GetSpecial(card_pos int, Board *map[string]models.Property) models.Special 
 	}
 }
 
-func CalculateRent(game_id string, user_id string, dice_roll int, val models.Property, Board *map[string]models.Property, conn *redis.Conn) int {
+func AllProperties(game_id string, user_id string, val models.Property, Board *map[string]models.Property, conn *redis.Conn) bool {
+	for i := 0; i < 40; i++ {
+		prop := (*Board)[strconv.Itoa(i)]
+		if prop.Group == val.Group && prop.Posistion != val.Posistion {
+			_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(prop.Posistion), conn)
+			if err != nil {
+				// if card isnt found
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func CalculateRent(game_id string, user_id string, id string, dice_roll int, val models.Property, Board *map[string]models.Property, conn *redis.Conn) int {
 	if val.Group == "railroad" {
 		// handle railroads
 		railroadPositions := []string{"5", "15", "25", "35"}
@@ -138,20 +152,34 @@ func CalculateRent(game_id string, user_id string, dice_roll int, val models.Pro
 		}
 		return dice_roll * 10
 	}
+	// check for houseses
+	strState, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, id), strconv.Itoa(val.Posistion), conn)
+	if err != nil {
+		panic(err)
+	}
+	var propState models.PropertyState
+	err = json.Unmarshal([]byte(strState), &propState)
+	if err != nil {
+		panic(err)
+	}
 
-	// check for all of a certain group
-	for i := 0; i < 40; i++ {
-		prop := (*Board)[strconv.Itoa(i)]
-		if prop.Group == val.Group && prop.Posistion != val.Posistion {
-			_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(prop.Posistion), conn)
-			if err != nil {
-				// if card isnt found
-				return val.Rent
+	if propState.Houses > 0 {
+		return val.Mulriplied_Rent[propState.Houses-1]
+	} else {
+		// check for all of a certain group
+		for i := 0; i < 40; i++ {
+			prop := (*Board)[strconv.Itoa(i)]
+			if prop.Group == val.Group && prop.Posistion != val.Posistion {
+				_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(prop.Posistion), conn)
+				if err != nil {
+					// if card isnt found
+					return val.Rent
+				}
 			}
 		}
+		// if all cards are found
+		return val.Rent * 2
 	}
-	// if all cards are found
-	return val.Rent * 2
 
 }
 
@@ -258,7 +286,7 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 				}
 				dice_roll = (dice1 + dice2)
 			}
-			rent := CalculateRent(game_id, user_id, dice_roll, val, Board, conn)
+			rent := CalculateRent(game_id, user_id, id, dice_roll, val, Board, conn)
 			// check if user can afford
 			can, _ := CanAfford(game_id, user_id, rent, conn)
 			if !can {

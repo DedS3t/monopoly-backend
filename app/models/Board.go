@@ -18,3 +18,11 @@ type Special struct {
 	Action  string `json:"action"` // "change" - balance update, "move" - move spaces, "other" - other actions
 	Payload int    `json:"payload"`
 }
+
+type PropertyState struct { // Data Save Object
+	Name      string `json:"name"`
+	Houses    int    `json:"houses"`
+	HouseCost int    `json:"housecost"`
+	Mortgaged bool   `json:"mortgaged"`
+	Posistion int    `json:"posistion"`
+}

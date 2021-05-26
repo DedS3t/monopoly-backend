@@ -30,7 +30,7 @@ func CreateSocketIOServer() {
 	pool := cache.CreateRedisPool()
 	defer pool.Close()
 
-	board := board.LoadProperties()
+	Board := board.LoadProperties()
 
 	server.OnConnect("/", func(s socketio.Conn) error {
 		s.SetContext("")
@@ -133,7 +133,7 @@ func CreateSocketIOServer() {
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
 			// check if has rolled dice
 			if !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
-				queries.RollDice(result["game_id"], result["user_id"], &board, &conn, server, db)
+				queries.RollDice(result["game_id"], result["user_id"], &Board, &conn, server, db)
 			}
 		}
 	})
@@ -145,7 +145,7 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
-			queries.BuyProperty(result["game_id"], result["user_id"], &conn, &board, server)
+			queries.BuyProperty(result["game_id"], result["user_id"], &conn, &Board, server)
 		}
 
 	})
@@ -159,6 +159,26 @@ func CreateSocketIOServer() {
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) && !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
 			queries.PayOutOfJail(result["game_id"], result["user_id"], &conn, db, server)
 		}
+	})
+
+	server.OnEvent("/", "buy-house", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
+		var result map[string]string
+		json.Unmarshal([]byte(jsonStr), &result)
+		card_pos, err := strconv.Atoi(result["card_pos"])
+		if err != nil {
+			panic(err)
+		}
+		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) && queries.CheckWhoOwns(result["game_id"], card_pos, &conn) == result["user_id"] {
+			property, err := board.GetByPos(card_pos, &Board)
+			if err != nil {
+				panic(err)
+			}
+			queries.BuildHouse(result["game_id"], result["user_id"], property, &Board, &conn, server)
+
+		}
+
 	})
 
 	server.OnEvent("/", "end-turn", func(s socketio.Conn, jsonStr string) {

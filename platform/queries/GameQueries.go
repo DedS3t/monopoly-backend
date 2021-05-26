@@ -274,13 +274,72 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[st
 		panic(err)
 	}
 	// add card to user hash map
-	jsonProperty, err := json.Marshal(property)
+	jsonProperty, err := json.Marshal(models.PropertyState{
+		Name:      property.Name,
+		Houses:    0,
+		HouseCost: property.HouseCost,
+		Mortgaged: false,
+		Posistion: property.Posistion,
+	})
 	if err != nil {
 		panic(err)
 	}
 	cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(property.Posistion), string(jsonProperty), conn) // set to card
 	// broadcast
 	server.BroadcastToRoom("/", game_id, "property-bought", fmt.Sprintf("%s.%d.%s", user_id, (bal-property.Price), property.Name))
+}
+
+func BuildHouse(game_id string, user_id string, property models.Property, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) {
+	/*
+		if !AllProperties(game_id, user_id, property, Board, conn) {
+			// doesnt own all the properties
+			return
+		}*/
+	if !board.CanBuildHouses(property) {
+		// not valid property to build on
+		return
+	}
+	// can afford
+	if can, bal := CanAfford(game_id, user_id, property.HouseCost, conn); can {
+		// update redis
+		res, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(property.Posistion), conn)
+		if err != nil {
+			panic(err)
+		}
+		var propState models.PropertyState
+		json.Unmarshal([]byte(res), &propState)
+
+		if propState.Houses < 5 {
+			propState.Houses += 1
+			jsonProperty, err := json.Marshal(propState)
+			if err != nil {
+				panic(err)
+			}
+			err = cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(property.Posistion), string(jsonProperty), conn)
+			if err != nil {
+				panic(err)
+			}
+			// subtract from balance
+			err = cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (bal - propState.HouseCost), conn)
+			if err != nil {
+				panic(err)
+			}
+
+			dto := map[string]interface{}{
+				"user_id":  user_id,
+				"property": property.Name,
+				"houses":   propState.Houses,
+			}
+
+			jsonDto, err := json.Marshal(dto)
+			if err != nil {
+				panic(err)
+			}
+
+			server.BroadcastToRoom("/", game_id, "bought-house", string(jsonDto))
+		}
+
+	}
 }
 
 func StartGame(game_id string, conn *redis.Conn) *map[string]models.PlayerDto {
