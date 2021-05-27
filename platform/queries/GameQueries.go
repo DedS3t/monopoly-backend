@@ -290,11 +290,11 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[st
 }
 
 func BuildHouse(game_id string, user_id string, property models.Property, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) {
-	/*
-		if !AllProperties(game_id, user_id, property, Board, conn) {
-			// doesnt own all the properties
-			return
-		}*/
+
+	if !AllProperties(game_id, user_id, property, Board, conn) {
+		// doesnt own all the properties
+		return
+	}
 	if !board.CanBuildHouses(property) {
 		// not valid property to build on
 		return
