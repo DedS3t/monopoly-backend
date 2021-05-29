@@ -48,17 +48,20 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 		if id, ok := result["game_id"]; ok {
 			if !queries.VerifyGame(id, db) {
+				s.Emit("error-message", "Invalid game")
 				s.Emit("failed")
 				return
 			}
 			user_id, ok := result["user_id"]
 			if !ok {
+				s.Emit("error-message", "User not authenticated")
 				s.Emit("failed")
 				return
 			}
 
 			user, err := queries.GetUserData(user_id, db)
 			if err != nil {
+				s.Emit("error-message", "User retrieval failed")
 				s.Emit("failed")
 				panic(err)
 			}
@@ -70,16 +73,14 @@ func CreateSocketIOServer() {
 
 			if err != nil {
 				fmt.Println(err)
+				s.Emit("error-message", "Failed creating player")
 				s.Emit("failed")
 				return
 			}
 
 			server.BroadcastToRoom("/", id, "player-join")
 			s.Join(id)
-			players := 0
-			server.ForEach("/", id, func(s socketio.Conn) {
-				players += 1
-			})
+			players := server.RoomLen("/", id)
 
 			s.Emit("joined-game", strconv.Itoa(players))
 			fmt.Printf("%s joined room %s", s.ID(), id)
@@ -98,8 +99,6 @@ func CreateSocketIOServer() {
 	})
 
 	server.OnEvent("/", "start-game", func(s socketio.Conn, game_id string) {
-		// TODO check for double
-		// TODO add save state
 		/* Set go timeout for 3 mins before deletion of player data.
 		If player decides to within 3 mins he can
 		Have new event join-back
@@ -109,6 +108,7 @@ func CreateSocketIOServer() {
 		if result := queries.StartGame(game_id, &conn); result != nil {
 			userJson, err := json.Marshal(result)
 			if err != nil {
+				fmt.Println("Here")
 				panic(err)
 			}
 			server.BroadcastToRoom("/", game_id, "game-start", string(userJson))
@@ -116,10 +116,13 @@ func CreateSocketIOServer() {
 			val, err := cache.Get(game_id, &conn)
 			if err != nil {
 				panic(err)
+
 			}
+
 			server.BroadcastToRoom("/", game_id, "change-turn", val)
 		} else {
 			// failed to start game
+			s.Emit("error-message", "Unable to start game")
 			fmt.Println("Failed to start game")
 		}
 	})
@@ -134,7 +137,11 @@ func CreateSocketIOServer() {
 			// check if has rolled dice
 			if !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
 				queries.RollDice(result["game_id"], result["user_id"], &Board, &conn, server, db)
+			} else {
+				s.Emit("error-message", "You have already rolled the dice")
 			}
+		} else {
+			s.Emit("error-message", "Not your turn")
 		}
 	})
 
@@ -145,7 +152,11 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
-			queries.BuyProperty(result["game_id"], result["user_id"], &conn, &Board, server)
+			if result := queries.BuyProperty(result["game_id"], result["user_id"], &conn, &Board, server); result != "" {
+				s.Emit("error-message", result)
+			}
+		} else {
+			s.Emit("error-message", "Not your turn")
 		}
 
 	})
@@ -157,7 +168,11 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) && !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
-			queries.PayOutOfJail(result["game_id"], result["user_id"], &conn, db, server)
+			if result := queries.PayOutOfJail(result["game_id"], result["user_id"], &conn, db, server); result != "" {
+				s.Emit("error-message", result)
+			}
+		} else {
+			s.Emit("error-message", "To pay out of jail you must not have thrown the dice and it must be your turn ")
 		}
 	})
 
@@ -175,8 +190,12 @@ func CreateSocketIOServer() {
 			if err != nil {
 				panic(err)
 			}
-			queries.BuildHouse(result["game_id"], result["user_id"], property, &Board, &conn, server)
 
+			if result := queries.BuildHouse(result["game_id"], result["user_id"], property, &Board, &conn, server); result != "" {
+				s.Emit("error-message", result)
+			}
+		} else {
+			s.Emit("error-message", "It must be your turn and your property to perform this action")
 		}
 
 	})
@@ -193,9 +212,12 @@ func CreateSocketIOServer() {
 				new_id := queries.GetNextTurn(result["game_id"], result["user_id"], &conn)
 				server.BroadcastToRoom("/", result["game_id"], "change-turn", new_id)
 				queries.ResetRolledDice(result["game_id"], result["user_id"], &conn)
+			} else {
+				s.Emit("error-message", "You must roll the die first!")
 			}
+		} else {
+			s.Emit("error-message", "Not your turn")
 		}
-		// ELSE End turn from wrong user
 
 	})
 

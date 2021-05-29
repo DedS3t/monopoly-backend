@@ -68,7 +68,17 @@ func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Serve
 	length, err := cache.LLEN(fmt.Sprintf("%s.order", game), &conn)
 	if length <= 1 {
 		cleanUp(game, db, &conn)
-		server.BroadcastToRoom("/", game, "game-over")
+		if length == 1 {
+			// someone won
+			winner, err := cache.LINDEX(fmt.Sprintf("%s.order", game), 0, &conn)
+			if err != nil {
+				panic(err)
+			}
+			server.BroadcastToRoom("/", game, "game-done", winner.(string))
+		} else {
+			server.BroadcastToRoom("/", game, "game-over")
+		}
+
 	}
 
 	return err
@@ -216,11 +226,11 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 	HandleMove(nPos, game_id, user_id, conn, Board, (dice1 + dice2), server, db)
 }
 
-func PayOutOfJail(game_id string, user_id string, conn *redis.Conn, db *pg.DB, server *socketio.Server) {
+func PayOutOfJail(game_id string, user_id string, conn *redis.Conn, db *pg.DB, server *socketio.Server) string {
 	if isJailed, _ := Jailed(game_id, user_id, conn); isJailed {
 		can, _ := CanAfford(game_id, user_id, 50, conn)
 		if !can {
-			return
+			return "You can't afford this action"
 		}
 		newBal, _ := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", -50, conn)
 		cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "jailed", 0, conn)
@@ -235,9 +245,10 @@ func PayOutOfJail(game_id string, user_id string, conn *redis.Conn, db *pg.DB, s
 		server.BroadcastToRoom("/", game_id, "free-jail", user_id)
 		server.BroadcastToRoom("/", game_id, "payment", string(jsonResult))
 	}
+	return ""
 }
 
-func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[string]models.Property, server *socketio.Server) {
+func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[string]models.Property, server *socketio.Server) string {
 	// get pos
 	val, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "pos", conn)
 	if err != nil {
@@ -252,22 +263,14 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[st
 	// check if is owned by someone
 	id := CheckWhoOwns(game_id, property.Posistion, conn)
 	if id != "" {
-		return
+		return "Someone owns this property"
 	}
 	// check if enough bal to buy
 	can, bal := CanAfford(game_id, user_id, property.Price, conn)
 	if !can {
-		return
+		return "You can't afford this property!"
 	}
-	/*
-		val, err = cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", conn)
-		if err != nil {
-			panic(err)
-		}
-		bal, _ := strconv.Atoi(val)
-		if bal < property.Price {
-			return
-		}*/
+
 	// sub bal
 	err = cache.HSET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (bal - property.Price), conn)
 	if err != nil {
@@ -287,17 +290,19 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[st
 	cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(property.Posistion), string(jsonProperty), conn) // set to card
 	// broadcast
 	server.BroadcastToRoom("/", game_id, "property-bought", fmt.Sprintf("%s.%d.%s", user_id, (bal-property.Price), property.Name))
+
+	return ""
 }
 
-func BuildHouse(game_id string, user_id string, property models.Property, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) {
+func BuildHouse(game_id string, user_id string, property models.Property, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) string {
 
 	if !AllProperties(game_id, user_id, property, Board, conn) {
 		// doesnt own all the properties
-		return
+		return "You need to own all houses of the group to build houses"
 	}
 	if !board.CanBuildHouses(property) {
 		// not valid property to build on
-		return
+		return "You are unable to build on this property"
 	}
 	// can afford
 	if can, bal := CanAfford(game_id, user_id, property.HouseCost, conn); can {
@@ -339,7 +344,10 @@ func BuildHouse(game_id string, user_id string, property models.Property, Board 
 			server.BroadcastToRoom("/", game_id, "bought-house", string(jsonDto))
 		}
 
+	} else {
+		return "You can't afford this action"
 	}
+	return ""
 }
 
 func StartGame(game_id string, conn *redis.Conn) *map[string]models.PlayerDto {
