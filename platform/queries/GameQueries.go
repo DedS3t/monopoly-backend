@@ -68,7 +68,7 @@ func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Serve
 	length, err := cache.LLEN(fmt.Sprintf("%s.order", game), &conn)
 	if length <= 1 {
 		cleanUp(game, db, &conn)
-		if length == 1 {
+		if length == 10 { // TODO fix this
 			// someone won
 			winner, err := cache.LINDEX(fmt.Sprintf("%s.order", game), 0, &conn)
 			if err != nil {
@@ -298,7 +298,7 @@ func BuildHouse(game_id string, user_id string, property models.Property, Board 
 
 	if !AllProperties(game_id, user_id, property, Board, conn) {
 		// doesnt own all the properties
-		return "You need to own all houses of the group to build houses"
+		return "You need to own all properties of the group to build houses"
 	}
 	if !board.CanBuildHouses(property) {
 		// not valid property to build on
