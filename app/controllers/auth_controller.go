@@ -3,6 +3,7 @@ package controllers
 import (
 	"github.com/DedS3t/monopoly-backend/app/models"
 	"github.com/DedS3t/monopoly-backend/platform/database"
+	"github.com/DedS3t/monopoly-backend/platform/logging"
 	jwt "github.com/form3tech-oss/jwt-go"
 	_ "github.com/go-pg/pg/v10"
 	_ "github.com/go-pg/pg/v10/orm"
@@ -16,6 +17,7 @@ func encrypt(pass string) string {
 	bytes := []byte(pass)
 	hash, err := bcrypt.GenerateFromPassword(bytes, bcrypt.MinCost)
 	if err != nil {
+		logging.Error(err.Error())
 		panic(err)
 	}
 	return string(hash)
@@ -27,6 +29,7 @@ func CreateUser(c *fiber.Ctx) error {
 
 	userDto := new(models.UserDto)
 	if err := c.BodyParser(userDto); err != nil {
+		logging.Error(err.Error())
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 
@@ -37,6 +40,7 @@ func CreateUser(c *fiber.Ctx) error {
 		Password: encrypt(userDto.Pass)}).Insert()
 
 	if err != nil {
+		logging.Error(err.Error())
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 	return c.SendStatus(201)
@@ -48,17 +52,20 @@ func Login(c *fiber.Ctx) error {
 
 	userDto := new(models.UserDto)
 	if err := c.BodyParser(userDto); err != nil {
+		logging.Error(err.Error())
 		return err
 	}
 
 	user := new(models.User)
 	err := db.Model(user).Where("email = ?", userDto.Email).Limit(1).Select()
 	if err != nil {
+		logging.Error(err.Error())
 		return c.SendStatus(401)
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(userDto.Pass))
 	if err != nil {
+		logging.Error(err.Error())
 		return c.SendStatus(401)
 	}
 
@@ -67,6 +74,7 @@ func Login(c *fiber.Ctx) error {
 	claims["user_id"] = user.Id
 	t, err := token.SignedString([]byte("secret"))
 	if err != nil {
+		logging.Error(err.Error())
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 

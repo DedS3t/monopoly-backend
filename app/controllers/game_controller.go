@@ -1,11 +1,10 @@
 package controllers
 
 import (
-	"fmt"
-
 	"github.com/DedS3t/monopoly-backend/app/models"
 	"github.com/DedS3t/monopoly-backend/pkg"
 	"github.com/DedS3t/monopoly-backend/platform/database"
+	"github.com/DedS3t/monopoly-backend/platform/logging"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -30,7 +29,7 @@ func CreateGame(c *fiber.Ctx) error {
 
 	_, err := db.Model(game).Insert()
 	if err != nil {
-		fmt.Println(err)
+		logging.Error(err.Error())
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 
@@ -44,6 +43,7 @@ func GetAllAvailGames(c *fiber.Ctx) error {
 	var games []models.Game
 	err := db.Model(&games).Where("status = ? and type = ?", "false", "public").Select()
 	if err != nil {
+		logging.Error(err.Error())
 		panic(err)
 	}
 
@@ -57,6 +57,7 @@ func FindAvailGame(c *fiber.Ctx) error {
 	var games []models.Game
 	err := db.Model(&games).Where("status = ? and type = ?", "false", "public").Limit(1).Select()
 	if err != nil {
+		logging.Error(err.Error())
 		panic(err)
 	}
 	if len(games) < 1 {
@@ -71,7 +72,7 @@ func VerifyGame(c *fiber.Ctx) error {
 
 	verifyGameDto := new(models.VerifyGameDto)
 	if err := c.QueryParser(verifyGameDto); err != nil {
-		fmt.Println(err)
+		logging.Error(err.Error())
 		return err
 	}
 
@@ -79,7 +80,7 @@ func VerifyGame(c *fiber.Ctx) error {
 
 	err := db.Model(game).WherePK().Select()
 	if err != nil || game.Status != "false" {
-		fmt.Println(err)
+		logging.Error(err.Error())
 		return c.JSON(fiber.Map{"status": false})
 	}
 

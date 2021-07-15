@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/DedS3t/monopoly-backend/app/controllers"
 	"github.com/DedS3t/monopoly-backend/pkg/routes"
+	"github.com/DedS3t/monopoly-backend/platform/logging"
 	socket "github.com/DedS3t/monopoly-backend/platform/sockets"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -12,6 +13,8 @@ import (
 // TODO add logging
 
 func main() {
+	logging.Init()
+
 	app := fiber.New()
 
 	app.Use(cors.New())
@@ -21,6 +24,7 @@ func main() {
 	app.Use(jwtware.New(jwtware.Config{
 		SigningKey: []byte("secret"),
 	}))
+
 	app.Get("/user/cur", controllers.Cur)
 	go socket.CreateSocketIOServer()
 	app.Listen(":3333")

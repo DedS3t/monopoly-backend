@@ -11,6 +11,7 @@ import (
 	"github.com/DedS3t/monopoly-backend/platform/board"
 	"github.com/DedS3t/monopoly-backend/platform/cache"
 	"github.com/DedS3t/monopoly-backend/platform/database"
+	"github.com/DedS3t/monopoly-backend/platform/logging"
 	"github.com/DedS3t/monopoly-backend/platform/queries"
 	socketio "github.com/googollee/go-socket.io"
 	"github.com/rs/cors"
@@ -63,6 +64,7 @@ func CreateSocketIOServer() {
 			if err != nil {
 				s.Emit("error-message", "User retrieval failed")
 				s.Emit("failed")
+				logging.Error(err.Error())
 				panic(err)
 			}
 			err = queries.CreatePlayer(models.Player{
@@ -72,7 +74,7 @@ func CreateSocketIOServer() {
 			}, db)
 
 			if err != nil {
-				fmt.Println(err)
+				logging.Error(err.Error())
 				s.Emit("error-message", "Failed creating player")
 				s.Emit("failed")
 				return
@@ -108,15 +110,15 @@ func CreateSocketIOServer() {
 		if result := queries.StartGame(game_id, &conn); result != nil {
 			userJson, err := json.Marshal(result)
 			if err != nil {
-				fmt.Println("Here")
+				logging.Error(err.Error())
 				panic(err)
 			}
 			server.BroadcastToRoom("/", game_id, "game-start", string(userJson))
 			time.Sleep(100 * time.Millisecond)
 			val, err := cache.Get(game_id, &conn)
 			if err != nil {
+				logging.Error(err.Error())
 				panic(err)
-
 			}
 
 			server.BroadcastToRoom("/", game_id, "change-turn", val)
@@ -124,6 +126,7 @@ func CreateSocketIOServer() {
 			// failed to start game
 			s.Emit("error-message", "Unable to start game")
 			fmt.Println("Failed to start game")
+			logging.Error("Failed to start game")
 		}
 	})
 
@@ -164,6 +167,7 @@ func CreateSocketIOServer() {
 	server.OnEvent("/", "pay-out-jail", func(s socketio.Conn, jsonStr string) {
 		conn := pool.Get()
 		defer conn.Close()
+
 		var result map[string]string
 		json.Unmarshal([]byte(jsonStr), &result)
 
@@ -183,11 +187,13 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 		card_pos, err := strconv.Atoi(result["card_pos"])
 		if err != nil {
+			logging.Error(err.Error())
 			panic(err)
 		}
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) && queries.CheckWhoOwns(result["game_id"], card_pos, &conn) == result["user_id"] {
 			property, err := board.GetByPos(card_pos, &Board)
 			if err != nil {
+				logging.Error(err.Error())
 				panic(err)
 			}
 
