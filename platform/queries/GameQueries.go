@@ -26,6 +26,51 @@ func VerifyGame(id string, db *pg.DB) bool {
 	}
 }
 
+func PlayerExists(user_id string, game_id string, db *pg.DB) bool {
+	player := &models.Player{}
+	err := db.Model(player).Where("user_id = ? and game_id = ?", user_id, game_id).Select()
+	if err != nil {
+		return false
+	} else {
+		return true
+	}
+}
+
+/* TODO FINISH THIS
+func HandlePossibleRejoin(user_id string, game_id string, db *pg.DB, conn *redis.Conn, s *socketio.Conn) {
+	player := &models.Player{}
+	err := db.Model(player).Where("user_id = ? and game_id = ?", user_id, game_id).Select()
+	if err != nil {
+		panic(err) // TODO change to logging
+	}
+	if player.Active == "false" {
+		// rejoin
+		_, err = db.Model(player).WherePK().Set("active = true").Update()
+		if err != nil {
+			panic(err)
+		}
+
+		data := make(map[string]interface{})
+
+		turn, _ := cache.Get("game_id", conn) // current user turn
+
+		data["turn"] = turn
+
+		players := make(map[string]interface{})
+
+		res, _ := cache.LGET(fmt.Sprintf("%s.order", game_id), conn)
+
+		for idx, id := range res {
+			player := make(map[string]interface{})
+			// TODO FINISH
+			// players[string(id.([]byte))] =
+		}
+
+		(*s).Emit("rejoined")
+
+	}
+} */
+
 // TODO check conccurency
 
 func CreatePlayer(player models.Player, db *pg.DB) error {
@@ -44,8 +89,33 @@ func GetUserData(user_id string, db *pg.DB) (*models.User, error) {
 	return user, nil
 }
 
-func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Server) error {
-	// TODO add the leave system
+func DeletePlayerTemp(user_id string, game string, db *pg.DB, server *socketio.Server) {
+	playerO := &models.Player{}
+
+	_, err := db.Model(playerO).Where("user_id = ? and game_id = ?", user_id, game).Set("active = ?", "false").Update()
+	if err != nil {
+		panic(err) // TODO change to logging
+	}
+
+	server.BroadcastToRoom("/", game, "temp-leave")
+
+	time.Sleep(time.Minute * 1)
+
+	err = db.Model(playerO).Where("user_id = ? and game_id = ?", user_id, game).Select()
+
+	if err != nil {
+		panic(err)
+	}
+	if playerO.Active != "true" {
+		DeletePlayer(user_id, game, db, server, true)
+	}
+}
+
+func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Server, left bool) error {
+	if left {
+		server.BroadcastToRoom("/", game, "player-left")
+	}
+
 	conn, _ := cache.CreateRedisConnection()
 
 	player := new(models.Player)
@@ -82,6 +152,7 @@ func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Serve
 	}
 
 	return err
+
 }
 
 func CheckDB(game_id string, db *pg.DB) {
@@ -168,7 +239,7 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 				can, _ := CanAfford(game_id, user_id, 50, conn)
 				if !can {
 					server.BroadcastToRoom("/", game_id, "bankrupt", can)
-					DeletePlayer(user_id, game_id, db, server)
+					DeletePlayer(user_id, game_id, db, server, false)
 					return
 				}
 				newBal, _ := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", -50, conn)

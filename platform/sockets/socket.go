@@ -60,32 +60,42 @@ func CreateSocketIOServer() {
 				return
 			}
 
-			user, err := queries.GetUserData(user_id, db)
-			if err != nil {
-				s.Emit("error-message", "User retrieval failed")
-				s.Emit("failed")
-				logging.Error(err.Error())
-				panic(err)
+			if queries.PlayerExists(user_id, id, db) {
+				server.BroadcastToRoom("/", id, "player-join")
+				s.Join(id)
+				players := server.RoomLen("/", id)
+
+				s.Emit("joined-game", strconv.Itoa(players))
+			} else {
+				user, err := queries.GetUserData(user_id, db)
+				if err != nil {
+					s.Emit("error-message", "User retrieval failed")
+					s.Emit("failed")
+					logging.Error(err.Error())
+					panic(err)
+				}
+				err = queries.CreatePlayer(models.Player{
+					Game_id:  id,
+					User_id:  user_id,
+					Username: user.Email,
+					Active:   "true",
+				}, db)
+
+				if err != nil {
+					logging.Error(err.Error())
+					s.Emit("error-message", "Failed creating player")
+					s.Emit("failed")
+					return
+				}
+
+				server.BroadcastToRoom("/", id, "player-join")
+				s.Join(id)
+				players := server.RoomLen("/", id)
+
+				s.Emit("joined-game", strconv.Itoa(players))
+				fmt.Printf("%s joined room %s", s.ID(), id)
 			}
-			err = queries.CreatePlayer(models.Player{
-				Game_id:  id,
-				User_id:  user_id,
-				Username: user.Email,
-			}, db)
 
-			if err != nil {
-				logging.Error(err.Error())
-				s.Emit("error-message", "Failed creating player")
-				s.Emit("failed")
-				return
-			}
-
-			server.BroadcastToRoom("/", id, "player-join")
-			s.Join(id)
-			players := server.RoomLen("/", id)
-
-			s.Emit("joined-game", strconv.Itoa(players))
-			fmt.Printf("%s joined room %s", s.ID(), id)
 		} else {
 			fmt.Println("Game_id not passed")
 		}
@@ -96,14 +106,15 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 
 		s.Leave(result["game_id"])
-		go queries.DeletePlayer(result["user_id"], result["game_id"], db, server)
-		server.BroadcastToRoom("/", result["game_id"], "player-left")
+		go queries.DeletePlayerTemp(result["user_id"], result["game_id"], db, server)
+
 	})
 
 	server.OnEvent("/", "start-game", func(s socketio.Conn, game_id string) {
-		/* Set go timeout for 3 mins before deletion of player data.
-		If player decides to within 3 mins he can
-		Have new event join-back
+		/* When player leaves when game has already started, change his status to not active or smthn
+		then delete player if after 3 minutes he hasnt joined back
+		When verifying game return custom result if user is rejoining
+		Then retieve game data and continue playing
 		*/
 		conn := pool.Get()
 		defer conn.Close()

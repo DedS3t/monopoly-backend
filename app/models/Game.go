@@ -13,5 +13,6 @@ type GameCreateDto struct {
 }
 
 type VerifyGameDto struct {
-	Code string
+	Code    string
+	User_id string
 }

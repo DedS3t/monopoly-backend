@@ -4,6 +4,7 @@ type Player struct {
 	User_id  string
 	Game_id  string
 	Username string
+	Active   string
 }
 
 type PlayerDto struct {

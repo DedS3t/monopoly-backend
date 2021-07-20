@@ -38,7 +38,8 @@ create table players
     game_id  text      not null
         constraint players_game_id_fkey
             references games,
-    username text      not null
+    username text      not null,
+    active text        not null,
 );
 
 alter table players

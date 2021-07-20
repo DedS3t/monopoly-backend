@@ -79,9 +79,23 @@ func VerifyGame(c *fiber.Ctx) error {
 	game := &models.Game{Id: verifyGameDto.Code}
 
 	err := db.Model(game).WherePK().Select()
-	if err != nil || game.Status != "false" {
+	// TODO if game.Status != false that means game is in progress... Check if player is part of game
+	if err != nil {
 		logging.Error(err.Error())
 		return c.JSON(fiber.Map{"status": false})
+	}
+
+	if game.Status == "in progress" {
+		// in progress check if player is part of game
+		player := &models.Player{}
+
+		err = db.Model(player).Where("user_id == ? and game_id == ?", verifyGameDto.User_id, verifyGameDto.Code).Select()
+		if err != nil {
+			// not part of game
+			return c.JSON(fiber.Map{"status": false})
+		} else {
+			return c.JSON(fiber.Map{"status": "rejoin"})
+		}
 	}
 
 	return c.JSON(fiber.Map{"status": true})

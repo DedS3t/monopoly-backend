@@ -291,7 +291,7 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 			can, _ := CanAfford(game_id, user_id, rent, conn)
 			if !can {
 				server.BroadcastToRoom("/", game_id, "bankrupt", can)
-				DeletePlayer(user_id, game_id, db, server)
+				DeletePlayer(user_id, game_id, db, server, false)
 				return
 			}
 			nBal, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", (-1 * rent), conn)
