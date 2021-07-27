@@ -3,6 +3,7 @@ package queries
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"strconv"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/DedS3t/monopoly-backend/platform/board"
 	"github.com/DedS3t/monopoly-backend/platform/cache"
 	"github.com/DedS3t/monopoly-backend/platform/database"
+	"github.com/DedS3t/monopoly-backend/platform/logging"
 	"github.com/go-pg/pg/v10"
 	"github.com/gomodule/redigo/redis"
 	socketio "github.com/googollee/go-socket.io"
@@ -36,23 +38,24 @@ func PlayerExists(user_id string, game_id string, db *pg.DB) bool {
 	}
 }
 
-/* TODO FINISH THIS
 func HandlePossibleRejoin(user_id string, game_id string, db *pg.DB, conn *redis.Conn, s *socketio.Conn) {
 	player := &models.Player{}
 	err := db.Model(player).Where("user_id = ? and game_id = ?", user_id, game_id).Select()
 	if err != nil {
-		panic(err) // TODO change to logging
+		logging.Error(err.Error())
+		return
 	}
 	if player.Active == "false" {
 		// rejoin
-		_, err = db.Model(player).WherePK().Set("active = true").Update()
+		_, err = db.Model(player).Where("user_id = ? and game_id = ?", user_id, game_id).Set("active = true").Update()
 		if err != nil {
-			panic(err)
+			logging.Error(err.Error())
+			return
 		}
 
 		data := make(map[string]interface{})
 
-		turn, _ := cache.Get("game_id", conn) // current user turn
+		turn, _ := cache.Get(game_id, conn) // current user turn
 
 		data["turn"] = turn
 
@@ -60,16 +63,60 @@ func HandlePossibleRejoin(user_id string, game_id string, db *pg.DB, conn *redis
 
 		res, _ := cache.LGET(fmt.Sprintf("%s.order", game_id), conn)
 
-		for idx, id := range res {
+		for _, id := range res {
+
 			player := make(map[string]interface{})
-			// TODO FINISH
-			// players[string(id.([]byte))] =
+			/*
+				Pos
+				Balance
+				Jailed
+				Properties
+				Color
+				Username
+			*/
+
+			pos, _ := cache.HGET(fmt.Sprintf("%s.%s", game_id, id), "pos", conn)
+			bal, _ := cache.HGET(fmt.Sprintf("%s.%s", game_id, id), "bal", conn)
+			jailedStr, _ := cache.HGET(fmt.Sprintf("%s.%s", game_id, id), "jailed", conn)
+			jailed, _ := strconv.Atoi(jailedStr)
+			color, _ := cache.HGET(fmt.Sprintf("%s.%s", game_id, id), "color", conn)
+			username, _ := cache.HGET(fmt.Sprintf("%s.%s", game_id, id), "username", conn)
+
+			propertiesRaw, _ := cache.HGETALL(fmt.Sprintf("%s.%s.cards", game_id, id), conn)
+
+			properties := make([]map[string]interface{}, int(math.Ceil(float64(len(propertiesRaw)/2))))
+			for _, prop := range propertiesRaw {
+				var propState models.PropertyState
+				json.Unmarshal([]byte(prop.(string)), &propState)
+				temp := make(map[string]interface{})
+				temp["Name"] = propState.Name
+				temp["Houses"] = propState.Houses
+				properties = append(properties, temp)
+			}
+
+			player["Username"] = username
+			player["Balance"] = bal
+			player["jailed"] = (jailed != 0)
+			player["Pos"] = pos
+			player["Color"] = color
+			player["Properties"] = properties
+			players[string(id.([]byte))] = player
 		}
 
-		(*s).Emit("rejoined")
+		data["data"] = players
+
+		body, err := json.Marshal(data)
+		if err != nil {
+			logging.Error(err.Error())
+			return
+		}
+
+		logging.Info(string(body))
+
+		(*s).Emit("rejoined", string(body))
 
 	}
-} */
+}
 
 // TODO check conccurency
 
@@ -104,8 +151,9 @@ func DeletePlayerTemp(user_id string, game string, db *pg.DB, server *socketio.S
 	err = db.Model(playerO).Where("user_id = ? and game_id = ?", user_id, game).Select()
 
 	if err != nil {
-		panic(err)
+		logging.Error(fmt.Sprintf("Error on retrieving player status: %s", err.Error()))
 	}
+
 	if playerO.Active != "true" {
 		DeletePlayer(user_id, game, db, server, true)
 	}
@@ -182,11 +230,13 @@ func cleanUp(game_id string, db *pg.DB, conn *redis.Conn) {
 	cache.Del(fmt.Sprintf("%s.order", game_id), conn)
 }
 
-func createRedisPlayer(game_id string, player models.Player, conn *redis.Conn) {
+func createRedisPlayer(game_id string, player models.Player, color string, conn *redis.Conn) {
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "bal", 1500, conn)
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "pos", 0, conn)
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "hasRolled", "false", conn)
 	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "jailed", 0, conn)
+	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "color", color, conn)
+	cache.HSET(fmt.Sprintf("%s.%s", player.Game_id, player.User_id), "username", player.Username, conn)
 }
 
 func GetNextTurn(game_id string, user_id string, conn *redis.Conn) string {
@@ -436,7 +486,7 @@ func StartGame(game_id string, conn *redis.Conn) *map[string]models.PlayerDto {
 	var ids []interface{}
 	arrColors := []string{"#63b598", "#ce7d78", "#ea9e70", "#a48a9e", "#c6e1e8", "#648177", "#0d5ac1", "#f205e6", "#1c0365", "#14a9ad", "#4ca2f9", "#a4e43f", "#d298e2", "#6119d0", "#d2737d", "#c0a43c", "#f2510e", "#651be6", "#79806e", "#61da5e", "#cd2f00", "#9348af", "#01ac53", "#c5a4fb", "#996635", "#b11573", "#4bb473", "#75d89e"}
 	for idx, player := range players {
-		createRedisPlayer(game_id, player, conn)
+		createRedisPlayer(game_id, player, arrColors[idx], conn)
 		playersDto[player.User_id] = models.PlayerDto{
 			Username:   player.Username,
 			Balance:    1500,

@@ -10,8 +10,6 @@ import (
 	jwtware "github.com/gofiber/jwt/v2"
 )
 
-// TODO add logging
-
 func main() {
 	logging.Init()
 

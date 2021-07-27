@@ -47,6 +47,11 @@ func HGET(key string, field string, conn *redis.Conn) (string, error) {
 	return res, nil
 }
 
+func HGETALL(key string, conn *redis.Conn) ([]interface{}, error) {
+	values, err := redis.Values((*conn).Do("HGETALL", key))
+	return values, err
+}
+
 func HINCRBY(key string, field string, n int, conn *redis.Conn) (int, error) {
 	res, err := redis.Int((*conn).Do("HINCRBY", key, field, n))
 	if err != nil {

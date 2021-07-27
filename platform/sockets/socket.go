@@ -43,6 +43,8 @@ func CreateSocketIOServer() {
 	})
 
 	server.OnEvent("/", "join-game", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
 
 		var result map[string]string
 
@@ -64,7 +66,7 @@ func CreateSocketIOServer() {
 				server.BroadcastToRoom("/", id, "player-join")
 				s.Join(id)
 				players := server.RoomLen("/", id)
-
+				queries.HandlePossibleRejoin(user_id, id, db, &conn, &s)
 				s.Emit("joined-game", strconv.Itoa(players))
 			} else {
 				user, err := queries.GetUserData(user_id, db)

@@ -87,9 +87,11 @@ func VerifyGame(c *fiber.Ctx) error {
 
 	if game.Status == "in progress" {
 		// in progress check if player is part of game
+
 		player := &models.Player{}
 
-		err = db.Model(player).Where("user_id == ? and game_id == ?", verifyGameDto.User_id, verifyGameDto.Code).Select()
+		err = db.Model(player).Where("user_id = ? and game_id = ?", verifyGameDto.User_id, verifyGameDto.Code).Select()
+
 		if err != nil {
 			// not part of game
 			return c.JSON(fiber.Map{"status": false})
