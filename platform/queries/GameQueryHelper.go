@@ -39,13 +39,94 @@ func ResetRolledDice(game_id string, user_id string, conn *redis.Conn) bool {
 	return true
 }
 
-func CanAfford(game_id string, user_id string, cost int, conn *redis.Conn) (bool, int) {
+func PossibleMortgage(game_id string, user_id string, needed int, b *map[string]models.Property, server *socketio.Server, conn *redis.Conn) (bool, int) {
+	propertiesRaw, _ := cache.HGETALL(fmt.Sprintf("%s.%s.cards", game_id, user_id), conn)
+	gain := 0
+
+	for _, prop := range propertiesRaw {
+		var propState models.PropertyState
+		json.Unmarshal([]byte(prop.(string)), &propState)
+		propVal, _ := board.GetByPos(propState.Posistion, b)
+
+		if propState.Houses > 0 {
+
+			enough := false
+			for propState.Houses >= 0 {
+				gain += (propState.HouseCost / 2)
+				propState.Houses -= 1
+				if gain >= needed {
+					enough = true
+					break
+				}
+			}
+
+			if enough {
+				data, _ := json.Marshal(propState)
+				err := cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(propVal.Posistion), string(data), conn)
+
+				returnData := make(map[string]interface{})
+				returnData["update"] = string(data)
+				returnData["user"] = user_id
+
+				returnDataString, _ := json.Marshal(returnData)
+
+				server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
+
+				if err != nil {
+					panic(err)
+				}
+				i, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", gain, conn)
+				if err != nil {
+					panic(err)
+				}
+
+				return true, i
+			}
+		}
+
+		gain += propVal.Mortgage
+		propState.Mortgaged = true
+		data, _ := json.Marshal(propState)
+
+		err := cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(propState.Posistion), string(data), conn)
+
+		returnData := make(map[string]interface{})
+		returnData["update"] = string(data)
+		returnData["user"] = user_id
+
+		returnDataString, _ := json.Marshal(returnData)
+
+		server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
+
+		if err != nil {
+			panic(err)
+		}
+
+		if gain >= needed {
+			i, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", gain, conn)
+			if err != nil {
+				panic(err)
+			}
+			return true, i
+		}
+	}
+
+	return false, 0
+
+}
+
+func CanAfford(game_id string, user_id string, cost int, b *map[string]models.Property, server *socketio.Server, conn *redis.Conn, auto bool) (bool, int) {
 	val, err := cache.HGET(fmt.Sprintf("%s.%s", game_id, user_id), "bal", conn)
 	if err != nil {
 		return false, 0
 	}
 	bal, _ := strconv.Atoi(val)
 	if bal < cost {
+		if auto {
+			if can, i := PossibleMortgage(game_id, user_id, cost-bal, b, server, conn); can {
+				return true, i
+			}
+		}
 		return false, 0
 	}
 	return true, bal
@@ -107,11 +188,19 @@ func AllProperties(game_id string, user_id string, val models.Property, Board *m
 	for i := 0; i < 40; i++ {
 		prop := (*Board)[strconv.Itoa(i)]
 		if prop.Group == val.Group && prop.Posistion != val.Posistion {
-			_, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(prop.Posistion), conn)
+			val, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(prop.Posistion), conn)
 			if err != nil {
 				// if card isnt found
 				return false
 			}
+
+			var propState models.PropertyState
+			json.Unmarshal([]byte(val), &propState)
+			if propState.Mortgaged {
+				// if property is mortgaged you are unable to do operations
+				return false
+			}
+
 		}
 	}
 	return true
@@ -288,7 +377,7 @@ func HandleMove(nPos int, game_id string, user_id string, conn *redis.Conn, Boar
 			}
 			rent := CalculateRent(game_id, user_id, id, dice_roll, val, Board, conn)
 			// check if user can afford
-			can, _ := CanAfford(game_id, user_id, rent, conn)
+			can, _ := CanAfford(game_id, user_id, rent, Board, server, conn, true)
 			if !can {
 				server.BroadcastToRoom("/", game_id, "bankrupt", can)
 				DeletePlayer(user_id, game_id, db, server, false)

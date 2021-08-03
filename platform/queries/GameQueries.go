@@ -91,6 +91,7 @@ func HandlePossibleRejoin(user_id string, game_id string, db *pg.DB, conn *redis
 				temp := make(map[string]interface{})
 				temp["Name"] = propState.Name
 				temp["Houses"] = propState.Houses
+				temp["Mortgaged"] = propState.Mortgaged
 				properties = append(properties, temp)
 			}
 
@@ -286,7 +287,7 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 			if jailVal >= 4 {
 				// last throw
 				// pay 50 and then move
-				can, _ := CanAfford(game_id, user_id, 50, conn)
+				can, _ := CanAfford(game_id, user_id, 50, Board, server, conn, true)
 				if !can {
 					server.BroadcastToRoom("/", game_id, "bankrupt", can)
 					DeletePlayer(user_id, game_id, db, server, false)
@@ -347,9 +348,9 @@ func RollDice(game_id string, user_id string, Board *map[string]models.Property,
 	HandleMove(nPos, game_id, user_id, conn, Board, (dice1 + dice2), server, db)
 }
 
-func PayOutOfJail(game_id string, user_id string, conn *redis.Conn, db *pg.DB, server *socketio.Server) string {
+func PayOutOfJail(game_id string, user_id string, b *map[string]models.Property, conn *redis.Conn, db *pg.DB, server *socketio.Server) string {
 	if isJailed, _ := Jailed(game_id, user_id, conn); isJailed {
-		can, _ := CanAfford(game_id, user_id, 50, conn)
+		can, _ := CanAfford(game_id, user_id, 50, b, server, conn, false)
 		if !can {
 			return "You can't afford this action"
 		}
@@ -387,7 +388,7 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[st
 		return "Someone owns this property"
 	}
 	// check if enough bal to buy
-	can, bal := CanAfford(game_id, user_id, property.Price, conn)
+	can, bal := CanAfford(game_id, user_id, property.Price, Board, server, conn, false)
 	if !can {
 		return "You can't afford this property!"
 	}
@@ -415,18 +416,98 @@ func BuyProperty(game_id string, user_id string, conn *redis.Conn, Board *map[st
 	return ""
 }
 
+func Mortgage(game_id string, user_id string, pos int, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) string {
+
+	val, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(pos), conn)
+	if err != nil {
+		// user doesnt own property
+		return "Property not owned"
+	}
+
+	var propState models.PropertyState
+	json.Unmarshal([]byte(val), &propState)
+
+	if !propState.Mortgaged {
+		propState.Mortgaged = true
+		data, _ := json.Marshal(propState)
+		err = cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(pos), data, conn)
+		if err != nil {
+			return "Failed in retrieval of property"
+		}
+
+		returnData := make(map[string]interface{})
+		returnData["update"] = string(data)
+		returnData["user"] = user_id
+
+		returnDataString, _ := json.Marshal(returnData)
+
+		server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
+		return ""
+	} else {
+		return "Property already mortgaged"
+	}
+
+}
+
+func BuyBack(game_id string, user_id string, pos int, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) string {
+	val, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(pos), conn)
+	if err != nil {
+		// user doesnt own property
+		return "Property not owned"
+	}
+
+	var propState models.PropertyState
+	json.Unmarshal([]byte(val), &propState)
+
+	if propState.Mortgaged {
+		propVal, err := board.GetByPos(pos, Board)
+		if err != nil {
+			panic(err)
+		}
+		if can, _ := CanAfford(game_id, user_id, propVal.Price, Board, server, conn, false); can {
+			_, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", -1*propVal.Price, conn)
+			if err != nil {
+				return "Failed to update balance"
+			}
+			propState.Mortgaged = false
+
+			data, _ := json.Marshal(propState)
+			err = cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(pos), data, conn)
+			if err != nil {
+				return "Failed in retrieval of property"
+			}
+
+			returnData := make(map[string]interface{})
+			returnData["update"] = string(data)
+			returnData["user"] = user_id
+
+			returnDataString, _ := json.Marshal(returnData)
+
+			server.BroadcastToRoom("/", game_id, "bought-back", returnDataString)
+
+			return ""
+		} else {
+			return "Cant afford"
+		}
+	} else {
+		return "Property not mortgaged"
+	}
+
+}
+
 func BuildHouse(game_id string, user_id string, property models.Property, Board *map[string]models.Property, conn *redis.Conn, server *socketio.Server) string {
 
 	if !AllProperties(game_id, user_id, property, Board, conn) {
 		// doesnt own all the properties
-		return "You need to own all properties of the group to build houses"
+		return "You need to own all properties (not mortgaged) of the group to build houses"
 	}
 	if !board.CanBuildHouses(property) {
 		// not valid property to build on
 		return "You are unable to build on this property"
 	}
+
 	// can afford
-	if can, bal := CanAfford(game_id, user_id, property.HouseCost, conn); can {
+	if can, bal := CanAfford(game_id, user_id, property.HouseCost, Board, server, conn, false); can {
 		// update redis
 		res, err := cache.HGET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(property.Posistion), conn)
 		if err != nil {

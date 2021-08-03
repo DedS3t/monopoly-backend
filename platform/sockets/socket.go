@@ -177,6 +177,41 @@ func CreateSocketIOServer() {
 
 	})
 
+	server.OnEvent("/", "mortgage", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
+		var result map[string]string
+		json.Unmarshal([]byte(jsonStr), &result)
+
+		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
+			fmt.Printf("%+v\n", result)
+			i, _ := strconv.Atoi(result["pos"])
+			errorMessage := queries.Mortgage(result["game_id"], result["user_id"], i, &Board, &conn, server)
+			if errorMessage != "" {
+				s.Emit("error-message", errorMessage)
+			}
+		} else {
+			s.Emit("error-message", "Not your turn")
+		}
+	})
+
+	server.OnEvent("/", "buy-back", func(s socketio.Conn, jsonStr string) {
+		conn := pool.Get()
+		defer conn.Close()
+		var result map[string]string
+		json.Unmarshal([]byte(jsonStr), &result)
+
+		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) {
+			i, _ := strconv.Atoi(result["pos"])
+			errorMessage := queries.BuyBack(result["game_id"], result["user_id"], i, &Board, &conn, server)
+			if errorMessage != "" {
+				s.Emit("error-message", errorMessage)
+			}
+		} else {
+			s.Emit("error-message", "Not your turn")
+		}
+	})
+
 	server.OnEvent("/", "pay-out-jail", func(s socketio.Conn, jsonStr string) {
 		conn := pool.Get()
 		defer conn.Close()
@@ -185,7 +220,7 @@ func CreateSocketIOServer() {
 		json.Unmarshal([]byte(jsonStr), &result)
 
 		if queries.IsUserTurn(result["game_id"], result["user_id"], &conn) && !queries.HasRolledDice(result["game_id"], result["user_id"], &conn) {
-			if result := queries.PayOutOfJail(result["game_id"], result["user_id"], &conn, db, server); result != "" {
+			if result := queries.PayOutOfJail(result["game_id"], result["user_id"], &Board, &conn, db, server); result != "" {
 				s.Emit("error-message", result)
 			}
 		} else {
