@@ -40,74 +40,78 @@ func ResetRolledDice(game_id string, user_id string, conn *redis.Conn) bool {
 }
 
 func PossibleMortgage(game_id string, user_id string, needed int, b *map[string]models.Property, server *socketio.Server, conn *redis.Conn) (bool, int) {
-	propertiesRaw, _ := cache.HGETALL(fmt.Sprintf("%s.%s.cards", game_id, user_id), conn)
+	propertiesR, _ := cache.HGETALL(fmt.Sprintf("%s.%s.cards", game_id, user_id), conn)
+	propertiesRaw := cache.ParseHGETALL(propertiesR)
 	gain := 0
 
-	for _, prop := range propertiesRaw {
-		var propState models.PropertyState
-		json.Unmarshal([]byte(prop.(string)), &propState)
-		propVal, _ := board.GetByPos(propState.Posistion, b)
+	for _, tpl := range propertiesRaw {
+		if len(tpl) == 2 {
+			prop := tpl[1]
+			var propState models.PropertyState
+			json.Unmarshal([]byte(prop.(string)), &propState)
+			propVal, _ := board.GetByPos(propState.Posistion, b)
 
-		if propState.Houses > 0 {
+			if propState.Houses > 0 {
 
-			enough := false
-			for propState.Houses >= 0 {
-				gain += (propState.HouseCost / 2)
-				propState.Houses -= 1
-				if gain >= needed {
-					enough = true
-					break
+				enough := false
+				for propState.Houses >= 0 {
+					gain += (propState.HouseCost / 2)
+					propState.Houses -= 1
+					if gain >= needed {
+						enough = true
+						break
+					}
+				}
+
+				if enough {
+					data, _ := json.Marshal(propState)
+					err := cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(propVal.Posistion), string(data), conn)
+
+					returnData := make(map[string]interface{})
+					returnData["update"] = string(data)
+					returnData["user"] = user_id
+
+					returnDataString, _ := json.Marshal(returnData)
+
+					server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
+
+					if err != nil {
+						panic(err)
+					}
+					i, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", gain, conn)
+					if err != nil {
+						panic(err)
+					}
+
+					return true, i
 				}
 			}
 
-			if enough {
-				data, _ := json.Marshal(propState)
-				err := cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(propVal.Posistion), string(data), conn)
+			gain += propVal.Mortgage
+			propState.Mortgaged = true
+			data, _ := json.Marshal(propState)
 
-				returnData := make(map[string]interface{})
-				returnData["update"] = string(data)
-				returnData["user"] = user_id
+			err := cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(propState.Posistion), string(data), conn)
 
-				returnDataString, _ := json.Marshal(returnData)
+			returnData := make(map[string]interface{})
+			returnData["update"] = string(data)
+			returnData["user"] = user_id
 
-				server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
+			returnDataString, _ := json.Marshal(returnData)
 
-				if err != nil {
-					panic(err)
-				}
+			server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
+
+			if err != nil {
+				panic(err)
+			}
+
+			if gain >= needed {
 				i, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", gain, conn)
 				if err != nil {
 					panic(err)
 				}
-
 				return true, i
 			}
-		}
-
-		gain += propVal.Mortgage
-		propState.Mortgaged = true
-		data, _ := json.Marshal(propState)
-
-		err := cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(propState.Posistion), string(data), conn)
-
-		returnData := make(map[string]interface{})
-		returnData["update"] = string(data)
-		returnData["user"] = user_id
-
-		returnDataString, _ := json.Marshal(returnData)
-
-		server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
-
-		if err != nil {
-			panic(err)
-		}
-
-		if gain >= needed {
-			i, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", gain, conn)
-			if err != nil {
-				panic(err)
-			}
-			return true, i
 		}
 	}
 

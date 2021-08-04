@@ -52,6 +52,22 @@ func HGETALL(key string, conn *redis.Conn) ([]interface{}, error) {
 	return values, err
 }
 
+func chunkBy(items []interface{}, chunkSize int) (chunks [][]interface{}) {
+	for chunkSize < len(items) {
+		items, chunks = items[chunkSize:], append(chunks, items[0:chunkSize:chunkSize])
+	}
+
+	return append(chunks, items)
+}
+
+func ParseHGETALL(data []interface{}) [][]interface{} {
+	for idx := range data {
+		data[idx] = string(data[idx].([]uint8))
+	}
+
+	return chunkBy(data, 2)
+}
+
 func HINCRBY(key string, field string, n int, conn *redis.Conn) (int, error) {
 	res, err := redis.Int((*conn).Do("HINCRBY", key, field, n))
 	if err != nil {

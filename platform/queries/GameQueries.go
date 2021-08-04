@@ -82,17 +82,21 @@ func HandlePossibleRejoin(user_id string, game_id string, db *pg.DB, conn *redis
 			color, _ := cache.HGET(fmt.Sprintf("%s.%s", game_id, id), "color", conn)
 			username, _ := cache.HGET(fmt.Sprintf("%s.%s", game_id, id), "username", conn)
 
-			propertiesRaw, _ := cache.HGETALL(fmt.Sprintf("%s.%s.cards", game_id, id), conn)
+			propertiesR, _ := cache.HGETALL(fmt.Sprintf("%s.%s.cards", game_id, id), conn)
+			propertiesRaw := cache.ParseHGETALL(propertiesR)
 
 			properties := make([]map[string]interface{}, int(math.Ceil(float64(len(propertiesRaw)/2))))
-			for _, prop := range propertiesRaw {
-				var propState models.PropertyState
-				json.Unmarshal([]byte(prop.(string)), &propState)
-				temp := make(map[string]interface{})
-				temp["Name"] = propState.Name
-				temp["Houses"] = propState.Houses
-				temp["Mortgaged"] = propState.Mortgaged
-				properties = append(properties, temp)
+			for _, tpl := range propertiesRaw {
+				if len(tpl) == 2 {
+					prop := tpl[1]
+					var propState models.PropertyState
+					json.Unmarshal([]byte(prop.(string)), &propState)
+					temp := make(map[string]interface{})
+					temp["Name"] = propState.Name
+					temp["Houses"] = propState.Houses
+					temp["Mortgaged"] = propState.Mortgaged
+					properties = append(properties, temp)
+				}
 			}
 
 			player["Username"] = username
@@ -146,6 +150,8 @@ func DeletePlayerTemp(user_id string, game string, db *pg.DB, server *socketio.S
 	}
 
 	server.BroadcastToRoom("/", game, "temp-leave")
+
+	CheckDB(game, db)
 
 	time.Sleep(time.Minute * 1)
 
@@ -204,12 +210,21 @@ func DeletePlayer(user_id string, game string, db *pg.DB, server *socketio.Serve
 
 }
 
+func areAllFalse(players *[]models.Player) bool {
+	for _, player := range *players {
+		if player.Active != "false" {
+			return false
+		}
+	}
+	return true
+}
+
 func CheckDB(game_id string, db *pg.DB) {
 	var players []models.Player
 	err := db.Model(&players).Where("game_id = ?", game_id).Select()
-	if err != nil || len(players) == 0 {
-		// means there are 0 rows returned
-
+	if err != nil || len(players) == 0 || areAllFalse(&players) {
+		// means there are 0 rows returned or all players are inactive
+		db.Model(new(models.Player)).Where("game_id = ?", game_id).Delete()
 		game := new(models.Game)
 		db.Model(game).Where("id = ?", game_id).Delete()
 	}
@@ -429,19 +444,29 @@ func Mortgage(game_id string, user_id string, pos int, Board *map[string]models.
 
 	if !propState.Mortgaged {
 		propState.Mortgaged = true
+
 		data, _ := json.Marshal(propState)
 		err = cache.HSET(fmt.Sprintf("%s.%s.cards", game_id, user_id), strconv.Itoa(pos), data, conn)
 		if err != nil {
 			return "Failed in retrieval of property"
 		}
 
+		propVal, _ := board.GetByPos(propState.Posistion, Board)
+
+		newB, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", propVal.Mortgage, conn)
+
+		if err != nil {
+			panic(err)
+		}
+
 		returnData := make(map[string]interface{})
 		returnData["update"] = string(data)
-		returnData["user"] = user_id
+		returnData["user_id"] = user_id
+		returnData["balance"] = newB
 
 		returnDataString, _ := json.Marshal(returnData)
 
-		server.BroadcastToRoom("/", game_id, "mortgage", returnDataString)
+		server.BroadcastToRoom("/", game_id, "mortgage", string(returnDataString))
 		return ""
 	} else {
 		return "Property already mortgaged"
@@ -465,7 +490,7 @@ func BuyBack(game_id string, user_id string, pos int, Board *map[string]models.P
 			panic(err)
 		}
 		if can, _ := CanAfford(game_id, user_id, propVal.Price, Board, server, conn, false); can {
-			_, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", -1*propVal.Price, conn)
+			newB, err := cache.HINCRBY(fmt.Sprintf("%s.%s", game_id, user_id), "bal", -1*propVal.Price, conn)
 			if err != nil {
 				return "Failed to update balance"
 			}
@@ -479,11 +504,12 @@ func BuyBack(game_id string, user_id string, pos int, Board *map[string]models.P
 
 			returnData := make(map[string]interface{})
 			returnData["update"] = string(data)
-			returnData["user"] = user_id
+			returnData["user_id"] = user_id
+			returnData["balance"] = newB
 
 			returnDataString, _ := json.Marshal(returnData)
 
-			server.BroadcastToRoom("/", game_id, "bought-back", returnDataString)
+			server.BroadcastToRoom("/", game_id, "bought-back", string(returnDataString))
 
 			return ""
 		} else {
