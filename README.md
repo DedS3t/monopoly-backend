@@ -20,9 +20,8 @@ The next step is to setup postresql...
     * DB_PASSWORD
     * DB_NAME
     * DB_ADDR
+    * REDIS_URL (eg. localhost:6379)
 
-Now it's time to setup redis for server side caching.
-Inside of platform/cache/redis.go change the neccesary data to hook up to redis
 
 Finally you are able to run ```go run main.go``` to start the backend.
 For this project to work you also need the client side which is found at https://github.com/DedS3t/monopoly-frontend

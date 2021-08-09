@@ -33,6 +33,10 @@ func CreateUser(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 
+	if len(userDto.Email) > 60 {
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
 	uuid := uuid.NewV4()
 	_, err := db.Model(&models.User{
 		Id:       uuid.String(),

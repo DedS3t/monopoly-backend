@@ -25,5 +25,5 @@ func main() {
 
 	app.Get("/user/cur", controllers.Cur)
 	go socket.CreateSocketIOServer()
-	app.Listen(":3333")
+	app.Listen(":4101")
 }

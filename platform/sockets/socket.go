@@ -298,5 +298,5 @@ func CreateSocketIOServer() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/socket.io/", server)
-	http.ListenAndServe(":8000", c.Handler(mux))
+	http.ListenAndServe(":4102", c.Handler(mux))
 }

@@ -20,6 +20,10 @@ func CreateGame(c *fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusInternalServerError)
 	}
 
+	if len(gameCreateDto.Name) > 60 {
+		return c.SendStatus(fiber.StatusInternalServerError)
+	}
+
 	game := &models.Game{
 		Id:     pkg.RandString(8),
 		Name:   gameCreateDto.Name,
